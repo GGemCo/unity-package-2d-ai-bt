@@ -1,9 +1,10 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using GGemCo2DAiBt;
 using UnityEngine;
 
-namespace GGemCo2DAiBt.Editor
+namespace GGemCo2DAiBtEditor
 {
     internal static class MonsterBtValidator
     {

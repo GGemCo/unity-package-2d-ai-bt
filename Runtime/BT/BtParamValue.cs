@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GGemCo2DAiBt
@@ -35,6 +36,16 @@ namespace GGemCo2DAiBt
                 BtValueType.BlackboardKey => $"{key}=@{blackboardKeyName}",
                 _ => $"{key}=?",
             };
+        }
+
+        public static bool TryGetFloat(List<BtParamValue> nodeParameters, string s, out float f)
+        {
+            throw new NotImplementedException();
+        }
+
+        public static bool TryGetString(List<BtParamValue> nodeParameters, string s, out string s1)
+        {
+            throw new NotImplementedException();
         }
     }
 }

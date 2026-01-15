@@ -1,8 +1,9 @@
 #if UNITY_EDITOR
 using System;
+using GGemCo2DAiBt;
 using UnityEngine;
 
-namespace GGemCo2DAiBt.Editor
+namespace GGemCo2DAiBtEditor
 {
     /// <summary>
     /// BT 프리셋 빌더. MVP에서는 예시 트리 1종을 제공한다.

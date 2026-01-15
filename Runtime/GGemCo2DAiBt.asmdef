@@ -1,0 +1,16 @@
+{
+    "name": "GGemCo2DAiBt",
+    "rootNamespace": "",
+    "references": [
+        "GUID:390127bd012ad394fad9615195463398"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,10 +1,9 @@
 #if UNITY_EDITOR
-using System;
-using System.Collections.Generic;
+using GGemCo2DAiBt;
 using UnityEditor;
 using UnityEngine;
 
-namespace GGemCo2DAiBt.Editor
+namespace GGemCo2DAiBtEditor
 {
     /// <summary>
     /// MonsterBehaviorTreeAsset 기본 인스펙터 확장.
