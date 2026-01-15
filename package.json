@@ -1,0 +1,16 @@
+{
+  "name": "com.ggemco.2d.ai.bt",
+  "displayName": "GGemCo 2D AI - Behavior Tree",
+  "version": "0.0.1",
+  "unity": "2022.3",
+  "description": "Behavior Tree runtime + editor tools for GGemCo 2D Core monsters. Execution is delegated to Core via IMonsterCombatDriver.",
+  "dependencies": {
+  },
+  "samples": [
+    {
+      "displayName": "Melee Goblin BT",
+      "description": "Example behavior tree asset and quick-start notes.",
+      "path": "Samples~/MeleeGoblinBT"
+    }
+  ]
+}
