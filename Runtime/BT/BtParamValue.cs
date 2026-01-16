@@ -22,6 +22,80 @@ namespace GGemCo2DAiBt
         [SerializeField] public Vector3 vector3Value;
         [SerializeField] public string blackboardKeyName;
 
+
+
+        public static bool TryGetBool(List<BtParamValue> list, string key, out bool value)
+        {
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p.key == key)
+                    {
+                        value = p.boolValue;
+                        return true;
+                    }
+                }
+            }
+            value = default;
+            return false;
+        }
+
+        public static bool TryGetInt(List<BtParamValue> list, string key, out int value)
+        {
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p.key == key)
+                    {
+                        value = p.intValue;
+                        return true;
+                    }
+                }
+            }
+            value = default;
+            return false;
+        }
+
+        public static bool TryGetFloat(List<BtParamValue> list, string key, out float value)
+        {
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p.key == key)
+                    {
+                        value = p.floatValue;
+                        return true;
+                    }
+                }
+            }
+            value = default;
+            return false;
+        }
+
+        public static bool TryGetString(List<BtParamValue> list, string key, out string value)
+        {
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p.key == key)
+                    {
+                        value = p.stringValue;
+                        return true;
+                    }
+                }
+            }
+            value = default;
+            return false;
+        }
+
         public override string ToString()
         {
             return valueType switch
@@ -36,16 +110,6 @@ namespace GGemCo2DAiBt
                 BtValueType.BlackboardKey => $"{key}=@{blackboardKeyName}",
                 _ => $"{key}=?",
             };
-        }
-
-        public static bool TryGetFloat(List<BtParamValue> nodeParameters, string s, out float f)
-        {
-            throw new NotImplementedException();
-        }
-
-        public static bool TryGetString(List<BtParamValue> nodeParameters, string s, out string s1)
-        {
-            throw new NotImplementedException();
         }
     }
 }

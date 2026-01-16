@@ -10,6 +10,14 @@ namespace GGemCo2DAiBtEditor
     /// </summary>
     internal static class MonsterBtPresetBuilder
     {
+        /// <summary>
+        /// 기존 호출부 호환을 위한 래퍼.
+        /// </summary>
+        public static void CreateMeleeBasicPreset(MonsterBehaviorTreeAsset asset)
+        {
+            BuildMeleeExample(asset);
+        }
+
         public static void BuildMeleeExample(MonsterBehaviorTreeAsset asset)
         {
             if (asset == null) return;

@@ -103,6 +103,16 @@ namespace GGemCo2DAiBtEditor
             return issues;
         }
 
+        /// <summary>
+        /// 기존 호출부 호환을 위한 유틸.
+        /// 내부적으로 <see cref="Validate"/> 후 <see cref="LogIssues"/>를 호출한다.
+        /// </summary>
+        public static void ValidateAndLog(MonsterBehaviorTreeAsset asset)
+        {
+            var issues = Validate(asset);
+            LogIssues(asset, issues);
+        }
+
         private static void DfsDetectCycle(string id, Dictionary<string, BtNodeRecord> nodeById, HashSet<string> visited, HashSet<string> stack, List<Issue> issues)
         {
             if (!visited.Add(id)) return;

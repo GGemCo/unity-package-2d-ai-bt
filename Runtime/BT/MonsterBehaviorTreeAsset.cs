@@ -24,5 +24,21 @@ namespace GGemCo2DAiBt
         /// 에셋 수정 시 다시 빌드해야 하므로 런타임에서는 Runner에서 로컬 캐시를 구성한다.
         /// </summary>
         public IReadOnlyList<BtNodeRecord> Nodes => nodes;
+
+        /// <summary>
+        /// 노드 ID로 노드 레코드를 찾는다.
+        /// </summary>
+        /// <param name="nodeId">검색할 노드 ID</param>
+        /// <returns>찾은 노드. 없으면 null.</returns>
+        public BtNodeRecord FindNode(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId) || nodes == null) return null;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var n = nodes[i];
+                if (n != null && n.id == nodeId) return n;
+            }
+            return null;
+        }
     }
 }

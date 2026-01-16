@@ -25,6 +25,23 @@ namespace GGemCo2DAiBt
 
         [Header("Debug")]
         [SerializeField] private bool enableDebugLog;
+        [SerializeField, Tooltip("디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.")]
+        private bool enableDebugTrace = true;
+        [SerializeField, Min(16), Tooltip("디버그 트레이스의 최대 방문 노드 기록 개수(한 틱 기준).")]
+        private int debugTraceCapacity = 256;
+        [SerializeField, Min(16), Tooltip("디버그 메트릭의 최대 기록 개수(한 틱 기준).")]
+        private int debugMetricCapacity = 256;
+
+        public string DebugActiveNodeId { get; private set; }
+        public IReadOnlyList<string> DebugActivePath => _debugActivePath;
+        public IReadOnlyList<BtDebugNodeResult> DebugLastTick => _debugLastTick;
+        public IReadOnlyList<BtDebugMetric> DebugLastMetrics => _debugMetrics;
+        public event Action<MonsterBtRunner> DebugTicked;
+
+        private readonly List<string> _debugActivePath = new();
+        private readonly List<BtDebugNodeResult> _debugLastTick = new();
+        private readonly List<BtDebugMetric> _debugMetrics = new();
+        private readonly List<string> _execStack = new();
 
         private readonly Dictionary<string, BtNodeRecord> _nodeById = new(StringComparer.Ordinal);
         private BtRuntimeState _runtime;
@@ -92,6 +109,15 @@ namespace GGemCo2DAiBt
             _runtime.tickIndex++;
             _runtime.lastTickTime = now;
 
+            if (enableDebugTrace)
+            {
+                _debugActivePath.Clear();
+                _debugLastTick.Clear();
+                _debugMetrics.Clear();
+                _execStack.Clear();
+                DebugActiveNodeId = null;
+            }
+
             if (!_nodeById.ContainsKey(treeAsset.rootNodeId))
             {
                 if (enableDebugLog) Debug.LogWarning($"[BT] Root node not found. root={treeAsset.rootNodeId}", this);
@@ -100,6 +126,12 @@ namespace GGemCo2DAiBt
 
             var ctx = new BtContext(this, _driver, _blackboard, _runtime, enableDebugLog);
             ExecuteNode(treeAsset.rootNodeId, ctx, depth: 0);
+
+            if (enableDebugTrace)
+            {
+                DebugActiveNodeId = _debugActivePath.Count > 0 ? _debugActivePath[_debugActivePath.Count - 1] : null;
+                DebugTicked?.Invoke(this);
+            }
         }
 
         private BtStatus ExecuteNode(string nodeId, BtContext ctx, int depth)
@@ -107,7 +139,10 @@ namespace GGemCo2DAiBt
             if (depth > 64) return BtStatus.Failure; // 순환/과도한 깊이 방어
             if (!_nodeById.TryGetValue(nodeId, out var node) || node == null) return BtStatus.Failure;
 
-            return node.kind switch
+            if (enableDebugTrace)
+                _execStack.Add(nodeId);
+
+            BtStatus status = node.kind switch
             {
                 BtNodeKind.Composite => ExecuteComposite(node, ctx, depth),
                 BtNodeKind.Decorator => ExecuteDecorator(node, ctx, depth),
@@ -115,6 +150,30 @@ namespace GGemCo2DAiBt
                 BtNodeKind.Action => ExecuteAction(node, ctx),
                 _ => BtStatus.Failure,
             };
+
+            if (enableDebugTrace)
+            {
+                if (_debugLastTick.Count < debugTraceCapacity)
+                    _debugLastTick.Add(new BtDebugNodeResult(nodeId, status, depth));
+
+                // 가장 깊은 Running 경로를 최초 1회만 캡처한다.
+                if (status == BtStatus.Running && _debugActivePath.Count == 0)
+                    _debugActivePath.AddRange(_execStack);
+
+                // pop
+                if (_execStack.Count > 0)
+                    _execStack.RemoveAt(_execStack.Count - 1);
+            }
+
+            return status;
+        }
+
+        
+        private void AddMetric(string nodeId, string key, float value, string text = null)
+        {
+            if (!enableDebugTrace) return;
+            if (_debugMetrics.Count >= debugMetricCapacity) return;
+            _debugMetrics.Add(new BtDebugMetric(nodeId, key, value, text));
         }
 
         #region Composite
@@ -201,14 +260,52 @@ namespace GGemCo2DAiBt
         #region Condition
         private BtStatus ExecuteCondition(BtNodeRecord node, BtContext ctx)
         {
-            bool ok = node.typeId switch
+            bool ok;
+
+            switch (node.typeId)
             {
-                BtTypeIds.Condition.HasAggroTarget => ctx.HasAggroTarget(),
-                BtTypeIds.Condition.InAttackRange => ctx.Driver.IsTargetInAttackRange(),
-                BtTypeIds.Condition.HpPercentBelow => ctx.Driver.HpPercent < Mathf.Clamp01(ctx.GetFloatParam(node, "threshold", 0.25f)),
-                BtTypeIds.Condition.TargetWithinDistance => ctx.IsTargetWithinDistance(ctx.GetFloatParam(node, "max", 12f)),
-                _ => false,
-            };
+                case BtTypeIds.Condition.HasAggroTarget:
+                {
+                    ok = ctx.HasAggroTarget();
+                    AddMetric(node.id, "HasAggroTarget", ok ? 1f : 0f);
+                    break;
+                }
+
+                case BtTypeIds.Condition.InAttackRange:
+                {
+                    ok = ctx.Driver.IsTargetInAttackRange();
+                    AddMetric(node.id, "InAttackRange", ok ? 1f : 0f);
+                    break;
+                }
+
+                case BtTypeIds.Condition.HpPercentBelow:
+                {
+                    float threshold = Mathf.Clamp01(ctx.GetFloatParam(node, "threshold", 0.25f));
+                    float hp = Mathf.Clamp01(ctx.Driver.HpPercent);
+                    ok = hp < threshold;
+                    AddMetric(node.id, "HpPercent", hp);
+                    AddMetric(node.id, "Threshold", threshold);
+                    AddMetric(node.id, "Result", ok ? 1f : 0f);
+                    break;
+                }
+
+                case BtTypeIds.Condition.TargetWithinDistance:
+                {
+                    float max = Mathf.Max(0f, ctx.GetFloatParam(node, "max", 12f));
+                    float dist = ctx.GetTargetDistance(out bool hasTarget);
+                    ok = hasTarget && dist <= max;
+                    AddMetric(node.id, "Distance", hasTarget ? dist : -1f, hasTarget ? null : "No target");
+                    AddMetric(node.id, "Max", max);
+                    AddMetric(node.id, "Result", ok ? 1f : 0f);
+                    break;
+                }
+
+                default:
+                    ok = false;
+                    AddMetric(node.id, "UnknownCondition", 0f, node.typeId);
+                    break;
+            }
+
             return ok ? BtStatus.Success : BtStatus.Failure;
         }
         #endregion
@@ -281,6 +378,17 @@ namespace GGemCo2DAiBt
                 var a = Owner.transform.position;
                 var b = target.position;
                 return (b - a).sqrMagnitude <= max * max;
+            }
+
+            public float GetTargetDistance(out bool hasTarget)
+            {
+                if (!Driver.TryGetTarget(out var target) || target == null)
+                {
+                    hasTarget = false;
+                    return -1f;
+                }
+                hasTarget = true;
+                return Vector3.Distance(Owner.transform.position, target.position);
             }
 
             public BtStatus MoveToTarget()
