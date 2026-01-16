@@ -1,10 +1,9 @@
 #if UNITY_EDITOR
-using GGemCo2DAiBt;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace GGemCo2DAiBtEditor
+namespace GGemCo2DAiBt.Editor
 {
     /// <summary>
     /// GraphView 상에서 표시되는 BT 노드 View.
@@ -27,7 +26,7 @@ namespace GGemCo2DAiBtEditor
             Kind = record.kind;
             TypeId = record.typeId;
 
-            title = string.IsNullOrEmpty(record.title) ? record.typeId : record.title;
+            ApplyRecordToView(record);
 
             // Input: Single (항상 부모 1개만 허용)
             InPort = InstantiatePort(Orientation.Horizontal, Direction.Input, Port.Capacity.Single, typeof(bool));
@@ -66,6 +65,21 @@ namespace GGemCo2DAiBtEditor
 
             RefreshExpandedState();
             RefreshPorts();
+        }
+
+        /// <summary>
+        /// 에셋 데이터(<see cref="BtNodeRecord"/>) 변경 후, 현재 View의 표시만 갱신한다.
+        /// - 노드 이동/연결과 무관한 속성(예: Title) 변경 시 전체 리빌드(<c>PopulateFromAsset</c>)를 피하기 위해 사용한다.
+        /// </summary>
+        public void RefreshFromRecord(BtNodeRecord record)
+        {
+            if (record == null || record.id != NodeId) return;
+            ApplyRecordToView(record);
+        }
+
+        private void ApplyRecordToView(BtNodeRecord record)
+        {
+            title = string.IsNullOrEmpty(record.title) ? record.typeId : record.title;
         }
 
         public void MarkAsRoot(bool isRoot)

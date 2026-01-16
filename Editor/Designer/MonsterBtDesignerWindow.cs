@@ -128,7 +128,6 @@ namespace GGemCo2DAiBtEditor
             };
             body.Add(_graphView);
 
-
             // GraphView 선택 이벤트가 제공되지 않는 Unity 버전 대응: 주기적으로 selection을 폴링한다.
             root.schedule.Execute(() =>
             {
@@ -241,6 +240,7 @@ namespace GGemCo2DAiBtEditor
                     _asset.rootNodeId = node.id;
                     EditorUtility.SetDirty(_asset);
                     _graphView.PopulateFromAsset();
+                    _graphView.SelectNode(node.id);
                     UpdateStatus("Root updated.");
                 }
                 else
@@ -259,7 +259,9 @@ namespace GGemCo2DAiBtEditor
                 Undo.RecordObject(_asset, "Edit BT Title");
                 node.title = evt.newValue;
                 EditorUtility.SetDirty(_asset);
-                _graphView.PopulateFromAsset();
+                // Title 변경은 그래프 구조 변경이 아니므로 전체 리빌드를 피한다.
+                _graphView.RefreshNodeView(node.id);
+                _graphView.SelectNode(node.id);
                 UpdateStatus("Title updated.");
             });
             _inspectorRoot.Add(titleField);
@@ -337,7 +339,7 @@ namespace GGemCo2DAiBtEditor
                     RefreshInspector(childId);
 
                     // 그래프에서도 선택 처리
-                    _graphView?.ClearSelection();
+                    _graphView?.SelectNode(childId, frame: true);
                 }
 
                 var removeRect = new Rect(rect.x + rect.width - 34, rect.y, 32, rect.height);
@@ -348,6 +350,7 @@ namespace GGemCo2DAiBtEditor
                     EditorUtility.SetDirty(_asset);
                     _graphView.PopulateFromAsset();
                     _graphView.ApplyDebug(_runner);
+                    _graphView.SelectNode(node.id);
                     UpdateStatus("Child removed.");
                 }
             };
@@ -358,6 +361,7 @@ namespace GGemCo2DAiBtEditor
                 EditorUtility.SetDirty(_asset);
                 _graphView.PopulateFromAsset();
                 _graphView.ApplyDebug(_runner);
+                _graphView.SelectNode(node.id);
                 UpdateStatus("Children reordered.");
             };
 

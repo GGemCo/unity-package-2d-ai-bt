@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using GGemCo2DAiBt;
+using GGemCo2DAiBt.Editor;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
@@ -25,6 +26,12 @@ namespace GGemCo2DAiBtEditor
         private readonly Dictionary<string, BtNodeView> _views = new(StringComparer.Ordinal);
 
         private string _lastSelectedNodeId;
+
+        // GraphView는 포커스를 잃을 때 selection이 비워지는 경우가 있어(특히 Inspector 편집 중),
+        // '사용자가 그래프 배경을 클릭해 선택 해제를 의도한 경우'에만 null 선택을 반영한다.
+        private bool _clearSelectionRequested;
+
+        // PopulateFromAsset() 등 내부 리빌드 과정에서 발생하는 GraphViewChange를 데이터 삭제로 처리하지 않도록 억제한다.
         private bool _suppressGraphViewChanges;
 
         public BtGraphView(MonsterBtDesignerWindow window)
@@ -39,38 +46,70 @@ namespace GGemCo2DAiBtEditor
             SetupZoom(ContentZoomer.DefaultMinScale, ContentZoomer.DefaultMaxScale);
 
             graphViewChanged += OnGraphViewChanged;
+
+            // 배경 클릭 시에만 선택 해제(null selection)를 인정한다.
+            RegisterCallback<MouseDownEvent>(OnMouseDown, TrickleDown.TrickleDown);
+        }
+
+        private void OnMouseDown(MouseDownEvent evt)
+        {
+            if (evt.button != 0)
+                return;
+
+            // Node/Port를 클릭한 경우는 selection이 유지/변경되므로 별도 처리 불필요.
+            // 배경(GridBackground, contentViewContainer, GraphView itself)을 클릭한 경우에만
+            // 다음 PollSelectionChange에서 null selection을 반영하도록 플래그를 켠다.
+            var ve = evt.target as VisualElement;
+            _clearSelectionRequested = IsBackgroundElement(ve);
+        }
+
+        private bool IsBackgroundElement(VisualElement ve)
+        {
+            if (ve == null) return false;
+
+            // GraphView 자체 또는 contentViewContainer(캔버스 영역)
+            if (ReferenceEquals(ve, this) || ReferenceEquals(ve, contentViewContainer))
+                return true;
+
+            // GridBackground 등 배경 계층
+            if (ve is GridBackground)
+                return true;
+
+            // 다른 배경 요소(버전에 따라 타입이 달라질 수 있음)
+            // - Node/Port/Edge 등이 아닌 요소를 폭넓게 허용하되,
+            //   title/port 등 노드 내부 클릭은 제외한다.
+            if (ve.ClassListContains("unity-grid-background"))
+                return true;
+
+            return false;
         }
 
         /// <summary>
-        /// 우클릭 컨텍스트 메뉴를 구성한다.
-        /// GraphView의 버전별 차이로 <see cref="nodeCreationRequest"/>가 호출되지 않는 환경이 있어,
-        /// 노드 생성은 이 경로를 기본으로 한다.
+        /// 지정 노드를 GraphView에서 선택한다.
         /// </summary>
-        public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
+        public void SelectNode(string nodeId, bool frame = false)
         {
-            base.BuildContextualMenu(evt);
+            if (string.IsNullOrEmpty(nodeId)) return;
+            if (!_views.TryGetValue(nodeId, out var view)) return;
 
-            if (_asset == null)
-            {
-                evt.menu.AppendAction(
-                    "Select a Tree Asset first",
-                    _ => { },
-                    DropdownMenuAction.Status.Disabled);
-                return;
-            }
+            ClearSelection();
+            AddToSelection(view);
+            if (frame) FrameSelection();
+        }
 
-            // ContextualMenuPopulateEvent의 mousePosition은 대상 VisualElement 좌표계 기준이다.
-            // 실제 노드 생성 좌표는 contentViewContainer 로컬 좌표계로 변환해 사용한다.
-            var graphPos = contentViewContainer.WorldToLocal(evt.mousePosition);
+        /// <summary>
+        /// 데이터는 유지한 채, 노드 뷰(표시)만 갱신한다.
+        /// </summary>
+        public void RefreshNodeView(string nodeId)
+        {
+            if (_asset == null) return;
+            if (string.IsNullOrEmpty(nodeId)) return;
+            if (!_views.TryGetValue(nodeId, out var view)) return;
 
-            foreach (var def in BtNodeTypeCatalog.All)
-            {
-                var path = $"{def.Kind}/{def.DisplayName}";
-                evt.menu.AppendAction(
-                    path,
-                    _ => CreateNode(def, graphPos),
-                    DropdownMenuAction.Status.Normal);
-            }
+            var record = _asset.FindNode(nodeId);
+            if (record == null) return;
+
+            view.RefreshFromRecord(record);
         }
 
         /// <summary>
@@ -81,6 +120,15 @@ namespace GGemCo2DAiBtEditor
         {
             var node = selection?.OfType<BtNodeView>().FirstOrDefault();
             var id = node != null ? node.NodeId : null;
+
+            // Inspector 편집 등으로 일시적으로 selection이 비는 상황에서는
+            // 사용자 의도(배경 클릭)가 확인되기 전까지 기존 선택을 유지한다.
+            if (id == null && _lastSelectedNodeId != null && !_clearSelectionRequested)
+                return;
+
+            // null selection 반영 후에는 플래그를 즉시 리셋한다.
+            if (id == null)
+                _clearSelectionRequested = false;
 
             if (id == _lastSelectedNodeId) return;
             _lastSelectedNodeId = id;
@@ -106,6 +154,9 @@ namespace GGemCo2DAiBtEditor
 
         public void PopulateFromAsset()
         {
+            // 리빌드 전 선택 상태를 보존해 둔다.
+            var selectedId = selection?.OfType<BtNodeView>().FirstOrDefault()?.NodeId;
+
             _suppressGraphViewChanges = true;
             try
             {
@@ -125,6 +176,7 @@ namespace GGemCo2DAiBtEditor
                     _views[n.id] = view;
                 }
 
+                // edges
                 foreach (var parent in _asset.nodes)
                 {
                     if (parent == null) continue;
@@ -140,6 +192,7 @@ namespace GGemCo2DAiBtEditor
                     }
                 }
 
+                // root badge
                 foreach (var kv in _views)
                     kv.Value.MarkAsRoot(false);
 
@@ -150,6 +203,10 @@ namespace GGemCo2DAiBtEditor
             {
                 _suppressGraphViewChanges = false;
             }
+
+            // 리빌드 후 선택 복원(가능한 경우)
+            if (!string.IsNullOrEmpty(selectedId))
+                SelectNode(selectedId, frame: false);
         }
 
         private void ShowCreateNodeMenu(Vector2 graphPos)
