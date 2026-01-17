@@ -428,6 +428,27 @@ namespace GGemCo2DAiBtEditor
             if (_asset.rootNodeId == nodeId)
                 _asset.rootNodeId = _asset.nodes.Count > 0 ? _asset.nodes[0].id : string.Empty;
         }
+        public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
+        {
+            base.BuildContextualMenu(evt);
+
+            if (_asset == null)
+            {
+                evt.menu.AppendAction("Select a Tree Asset first", _ => { }, DropdownMenuAction.Status.Disabled);
+                return;
+            }
+
+            // GraphView 좌표계 → contentViewContainer 로컬 좌표계 변환
+            var graphPos = contentViewContainer.WorldToLocal(evt.mousePosition);
+
+            foreach (var def in BtNodeTypeCatalog.All)
+            {
+                evt.menu.AppendAction(
+                    $"{def.Kind}/{def.DisplayName}",
+                    _ => CreateNode(def, graphPos)
+                );
+            }
+        }
     }
 }
 #endif
