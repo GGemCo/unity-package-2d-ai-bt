@@ -58,7 +58,7 @@ namespace GGemCo2DAiBt
         {
             public const string Selector = "Composite.Selector";
             public const string Sequence = "Composite.Sequence";
-            public const string RandomWeighted = "Composite.RandomSelectorWeighted";
+            public const string RandomWeighted = "Composite.RandomWeighted";
         }
 
         public static class Decorator
