@@ -58,6 +58,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.InAttackRange", DisplayName = "In Attack Range" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HpPercentBelow", DisplayName = "Hp Percent Below" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.TargetWithinDistance", DisplayName = "Target Within Distance" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
 
             // Action
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.WaitOneTick", DisplayName = "Wait One Tick" },
@@ -66,7 +67,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.FaceToTarget", DisplayName = "Face To Target" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.MoveToTarget", DisplayName = "Move To Target" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.AttackBasic", DisplayName = "Attack Basic" },
-            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill (MVP)" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill" },
         };
 
         private static readonly Dictionary<string, IReadOnlyList<BtParamDef>> _paramDefsByTypeId =
@@ -92,6 +93,11 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("max", BtValueType.Float, required: true, defaultValue: 12f, min: 0f),
                 },
+                ["Condition.CanUseSkill"] = new List<BtParamDef>
+                {
+                    new BtParamDef("skillId", BtValueType.String, required: true, defaultValue: "SK_0001"),
+                    new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
+                },
 
                 // Action
                 ["Action.Wait"] = new List<BtParamDef>
@@ -100,8 +106,12 @@ namespace GGemCo2DAiBtEditor
                 },
                 ["Action.UseSkill"] = new List<BtParamDef>
                 {
-                    new BtParamDef("id", BtValueType.Int, required: true, defaultValue: 101),
+                    new BtParamDef("skillId", BtValueType.String, required: true, defaultValue: "SK_0001"),
+                    new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
+                    // EnumString: Running / Success
+                    new BtParamDef("busyReturn", BtValueType.EnumString, required: false, defaultValue: "Running"),
                 },
+
             };
 
         public static IReadOnlyList<BtParamDef> GetParamDefs(string typeId)

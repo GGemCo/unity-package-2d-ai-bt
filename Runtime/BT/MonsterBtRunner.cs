@@ -49,6 +49,7 @@ namespace GGemCo2DAiBt
         private float _nextTickTime;
 
         private IMonsterCombatDriver _driver;
+        private IMonsterSkillDriver _skillDriver;
 
         public bool IsActive => enabled && isActiveAndEnabled && treeAsset != null && !string.IsNullOrEmpty(treeAsset.rootNodeId);
 
@@ -96,6 +97,8 @@ namespace GGemCo2DAiBt
             // 최초 몇 프레임은 드라이버가 아직 없을 수 있다. 매 틱 느슨하게 획득한다.
             if (_driver == null)
                 _driver = GetComponent<IMonsterCombatDriver>();
+            if (_skillDriver == null)
+                _skillDriver = GetComponent<IMonsterSkillDriver>();
 
             if (_driver == null) return;
 
@@ -124,7 +127,7 @@ namespace GGemCo2DAiBt
                 return;
             }
 
-            var ctx = new BtContext(this, _driver, _blackboard, _runtime, enableDebugLog);
+            var ctx = new BtContext(this, _driver, _skillDriver, _blackboard, _runtime, enableDebugLog);
             ExecuteNode(treeAsset.rootNodeId, ctx, depth: 0);
 
             if (enableDebugTrace)
@@ -299,6 +302,21 @@ namespace GGemCo2DAiBt
                     AddMetric(node.id, "Result", ok ? 1f : 0f);
                     break;
                 }
+                case BtTypeIds.Condition.CanUseSkill:
+                {
+                    string skillId = ctx.GetStringParam(node, "skillId", fallback: "");
+                    bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
+
+                    bool can =
+                        ctx.SkillDriver != null &&
+                        !ctx.SkillDriver.IsSkillBusy &&
+                        !string.IsNullOrEmpty(skillId) &&
+                        (!requireTarget || ctx.Driver.TryGetTarget(out var t) && t != null);
+
+                    AddMetric(node.id, "CanUseSkill", can ? 1f : 0f, skillId);
+                    ok = can;
+                    break;
+                }
 
                 default:
                     ok = false;
@@ -338,6 +356,31 @@ namespace GGemCo2DAiBt
                 case BtTypeIds.Action.AttackBasic:
                     ctx.Driver.RequestAttackOnce();
                     return BtStatus.Success;
+                
+                case BtTypeIds.Action.UseSkill:
+                {
+                    if (ctx.SkillDriver == null) return BtStatus.Failure;
+
+                    string skillId = ctx.GetStringParam(node, "skillId", fallback: "");
+                    if (string.IsNullOrEmpty(skillId)) return BtStatus.Failure;
+
+                    bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
+                    string busyReturn = ctx.GetEnumStringParam(node, "busyReturn", fallback: "Running"); // Running / Success
+
+                    if (ctx.SkillDriver.IsSkillBusy)
+                        return (busyReturn == "Success") ? BtStatus.Success : BtStatus.Running;
+
+                    Transform targetTr = null;
+                    bool hasTarget = ctx.Driver.TryGetTarget(out targetTr) && targetTr != null;
+                    if (requireTarget && !hasTarget) return BtStatus.Failure;
+
+                    Vector3 ground = hasTarget ? targetTr.position : ctx.Owner.transform.position;
+                    Vector3 raw = hasTarget ? (targetTr.position - ctx.Owner.transform.position) : Vector3.right;
+                    var forward = new Vector2(raw.x, raw.y);
+
+                    var st = ctx.SkillDriver.TryUseSkill(skillId, new MonsterSkillTarget(targetTr, ground, forward));
+                    return st == SkillUseResult.Started ? BtStatus.Running : BtStatus.Failure;
+                }
 
                 default:
                     return BtStatus.Failure;
@@ -355,11 +398,14 @@ namespace GGemCo2DAiBt
             public readonly RuntimeBlackboard Blackboard;
             public readonly BtRuntimeState Runtime;
             public readonly bool DebugLog;
-
-            public BtContext(MonoBehaviour owner, IMonsterCombatDriver driver, RuntimeBlackboard blackboard, BtRuntimeState runtime, bool debugLog)
+            public readonly IMonsterSkillDriver SkillDriver;
+            
+            public BtContext(MonoBehaviour owner, IMonsterCombatDriver driver, IMonsterSkillDriver skillDriver,
+                RuntimeBlackboard blackboard, BtRuntimeState runtime, bool debugLog)
             {
                 Owner = owner;
                 Driver = driver;
+                SkillDriver = skillDriver;
                 Blackboard = blackboard;
                 Runtime = runtime;
                 DebugLog = debugLog;
@@ -482,6 +528,15 @@ namespace GGemCo2DAiBt
                     if (r <= 0f) return i;
                 }
                 return children.Count - 1;
+            }
+            public bool GetBoolParam(BtNodeRecord node, string key, bool fallback)
+            {
+                return BtParamValue.TryGetBool(node.parameters, key, out bool v) ? v : fallback;
+            }
+
+            public string GetEnumStringParam(BtNodeRecord node, string key, string fallback)
+            {
+                return BtParamValue.TryGetEnumString(node.parameters, key, out string v) && !string.IsNullOrEmpty(v) ? v : fallback;
             }
         }
     }

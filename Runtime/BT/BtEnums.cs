@@ -73,6 +73,7 @@ namespace GGemCo2DAiBt
             public const string InAttackRange = "Condition.InAttackRange";
             public const string HpPercentBelow = "Condition.HpPercentBelow";
             public const string TargetWithinDistance = "Condition.TargetWithinDistance";
+            public const string CanUseSkill = "Condition.CanUseSkill";
         }
 
         public static class Action
@@ -83,6 +84,7 @@ namespace GGemCo2DAiBt
             public const string FaceToTarget = "Action.FaceToTarget";
             public const string MoveToTarget = "Action.MoveToTarget";
             public const string AttackBasic = "Action.AttackBasic";
+            public const string UseSkill = "Action.UseSkill";
         }
     }
 }

@@ -95,6 +95,23 @@ namespace GGemCo2DAiBt
             value = default;
             return false;
         }
+        public static bool TryGetEnumString(List<BtParamValue> list, string key, out string value)
+        {
+            if (list != null)
+            {
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p.key == key)
+                    {
+                        value = p.enumValue;
+                        return true;
+                    }
+                }
+            }
+            value = default;
+            return false;
+        }
 
         public override string ToString()
         {
