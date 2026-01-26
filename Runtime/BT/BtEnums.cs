@@ -74,6 +74,9 @@ namespace GGemCo2DAiBt
             public const string HpPercentBelow = "Condition.HpPercentBelow";
             public const string TargetWithinDistance = "Condition.TargetWithinDistance";
             public const string CanUseSkill = "Condition.CanUseSkill";
+
+            // Skill UID별 사용 횟수 비교
+            public const string SkillUseCountCompare = "Condition.SkillUseCountCompare";
         }
 
         public static class Action

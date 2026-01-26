@@ -2,6 +2,8 @@
     "name": "GGemCo2DAiBtEditor",
     "rootNamespace": "",
     "references": [
+        "GUID:390127bd012ad394fad9615195463398",
+        "GUID:6ae7647be74da674da690fd732cd6059",
         "GUID:523d964e4ebdcab4fb1ef5060809f08c"
     ],
     "includePlatforms": [

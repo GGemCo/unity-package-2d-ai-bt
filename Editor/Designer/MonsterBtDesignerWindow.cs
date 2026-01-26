@@ -281,7 +281,7 @@ namespace GGemCo2DAiBtEditor
             // Parameters (auto UI)
             _inspectorRoot.Add(new Label("Parameters") { style = { marginTop = 10, unityFontStyleAndWeight = FontStyle.Bold } });
             BtEditorParamUtility.EnsureParams(node, _asset);
-            _inspectorRoot.Add(BtEditorParamUtility.CreateParamEditor(_asset, node, () =>
+            _inspectorRoot.Add(BtEditorParamUtility.CreateParamEditor(this, _asset, node, () =>
             {
                 // 파라미터만 바뀐 경우 그래프 구조는 유지하므로 Populate는 필요 시에만
                 UpdateStatus("Param updated.");

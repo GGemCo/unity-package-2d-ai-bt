@@ -304,17 +304,48 @@ namespace GGemCo2DAiBt
                 }
                 case BtTypeIds.Condition.CanUseSkill:
                 {
-                    string skillId = ctx.GetStringParam(node, "skillId", fallback: "");
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
                     bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
 
                     bool can =
                         ctx.SkillDriver != null &&
                         !ctx.SkillDriver.IsSkillBusy &&
-                        !string.IsNullOrEmpty(skillId) &&
+                        skillUid > 0 &&
                         (!requireTarget || ctx.Driver.TryGetTarget(out var t) && t != null);
 
-                    AddMetric(node.id, "CanUseSkill", can ? 1f : 0f, skillId);
+                    AddMetric(node.id, "CanUseSkill", can ? 1f : 0f, $"{skillUid}");
                     ok = can;
+                    break;
+                }
+                case BtTypeIds.Condition.SkillUseCountCompare:
+                {
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    int value = ctx.GetIntParam(node, "value", fallback: 0);
+                    string op = ctx.GetEnumStringParam(node, "op", fallback: ">=");
+                    bool resetOnSuccess = ctx.GetBoolParam(node, "resetOnSuccess", fallback: false);
+
+                    int count = ctx.Blackboard != null ? ctx.Blackboard.GetSkillUseCount(skillUid) : 0;
+
+                    bool result = op switch
+                    {
+                        ">" => count > value,
+                        ">=" => count >= value,
+                        "==" => count == value,
+                        "!=" => count != value,
+                        "<" => count < value,
+                        "<=" => count <= value,
+                        _ => count >= value,
+                    };
+
+                    AddMetric(node.id, "SkillUid", skillUid, null);
+                    AddMetric(node.id, "Count", count, null);
+                    AddMetric(node.id, "Value", value, op);
+                    AddMetric(node.id, "Result", result ? 1f : 0f);
+
+                    if (result && resetOnSuccess && ctx.Blackboard != null)
+                        ctx.Blackboard.ResetSkillUseCount(skillUid);
+
+                    ok = result;
                     break;
                 }
 
@@ -361,8 +392,8 @@ namespace GGemCo2DAiBt
                 {
                     if (ctx.SkillDriver == null) return BtStatus.Failure;
 
-                    string skillId = ctx.GetStringParam(node, "skillId", fallback: "");
-                    if (string.IsNullOrEmpty(skillId)) return BtStatus.Failure;
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    if (skillUid <= 0) return BtStatus.Failure;
 
                     bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
                     string busyReturn = ctx.GetEnumStringParam(node, "busyReturn", fallback: "Running"); // Running / Success
@@ -370,16 +401,21 @@ namespace GGemCo2DAiBt
                     if (ctx.SkillDriver.IsSkillBusy)
                         return (busyReturn == "Success") ? BtStatus.Success : BtStatus.Running;
 
-                    Transform targetTr = null;
-                    bool hasTarget = ctx.Driver.TryGetTarget(out targetTr) && targetTr != null;
+                    bool hasTarget = ctx.Driver.TryGetTarget(out var targetTr) && targetTr != null;
                     if (requireTarget && !hasTarget) return BtStatus.Failure;
 
                     Vector3 ground = hasTarget ? targetTr.position : ctx.Owner.transform.position;
                     Vector3 raw = hasTarget ? (targetTr.position - ctx.Owner.transform.position) : Vector3.right;
                     var forward = new Vector2(raw.x, raw.y);
 
-                    var st = ctx.SkillDriver.TryUseSkill(skillId, new MonsterSkillTarget(targetTr, ground, forward));
-                    return st == SkillUseResult.Started ? BtStatus.Running : BtStatus.Failure;
+                    var st = ctx.SkillDriver.TryUseSkill(skillUid, new MonsterSkillTarget(targetTr, ground, forward));
+                    if (st == SkillUseResult.Started)
+                    {
+                        // 성공(Started) 시에만 1회 증가
+                        ctx.Blackboard?.IncrementSkillUseCount(skillUid);
+                        return BtStatus.Running;
+                    }
+                    return BtStatus.Failure;
                 }
 
                 default:
@@ -496,6 +532,11 @@ namespace GGemCo2DAiBt
             public float GetFloatParam(BtNodeRecord node, string key, float fallback)
             {
                 return BtParamValue.TryGetFloat(node.parameters, key, out float v) ? v : fallback;
+            }
+
+            public int GetIntParam(BtNodeRecord node, string key, int fallback)
+            {
+                return BtParamValue.TryGetInt(node.parameters, key, out int v) ? v : fallback;
             }
 
             public string GetStringParam(BtNodeRecord node, string key, string fallback)

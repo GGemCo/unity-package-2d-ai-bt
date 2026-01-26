@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using GGemCo2DAiBt;
+using GGemCo2DCoreEditor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -41,7 +42,7 @@ namespace GGemCo2DAiBtEditor
             }
         }
 
-        public static VisualElement CreateParamEditor(MonsterBehaviorTreeAsset asset, BtNodeRecord node, Action onChanged)
+        public static VisualElement CreateParamEditor(EditorWindow owner, MonsterBehaviorTreeAsset asset, BtNodeRecord node, Action onChanged)
         {
             var root = new VisualElement();
 
@@ -66,7 +67,7 @@ namespace GGemCo2DAiBtEditor
                     }
                 });
 
-                var field = CreateValueField(asset, node, def, onChanged);
+                var field = CreateValueField(owner, asset, node, def, onChanged);
                 field.style.flexGrow = 1;
                 row.Add(field);
 
@@ -76,7 +77,7 @@ namespace GGemCo2DAiBtEditor
             return root;
         }
 
-        private static VisualElement CreateValueField(MonsterBehaviorTreeAsset asset, BtNodeRecord node, BtParamDef def, Action onChanged)
+        private static VisualElement CreateValueField(EditorWindow owner, MonsterBehaviorTreeAsset asset, BtNodeRecord node, BtParamDef def, Action onChanged)
         {
             EnsureParamExists(node, def);
 
@@ -99,6 +100,14 @@ namespace GGemCo2DAiBtEditor
                 case BtValueType.Int:
                 {
                     var v = GetInt(node.parameters, def.Key, Convert.ToInt32(def.DefaultValue));
+
+                    // skillUid는 테이블 기반으로 검색 가능한 드롭다운으로 입력한다.
+                    // - Condition.CanUseSkill
+                    // - Condition.SkillUseCountCompare
+                    // - Action.UseSkill
+                    if (IsSkillUidParam(node.typeId, def.Key))
+                        return CreateSkillUidDropdownField(owner, asset, node, def, v, onChanged);
+
                     var field = new IntegerField { value = v };
                     field.RegisterValueChangedCallback(evt =>
                     {
@@ -124,6 +133,20 @@ namespace GGemCo2DAiBtEditor
                     return field;
                 }
 
+                case BtValueType.EnumString:
+                {
+                    var v = GetEnumString(node.parameters, def.Key, def.DefaultValue?.ToString() ?? "");
+                    var field = new TextField { value = v };
+                    field.RegisterValueChangedCallback(evt =>
+                    {
+                        Undo.RecordObject(asset, "Edit BT Param");
+                        SetEnumString(node.parameters, def.Key, evt.newValue);
+                        EditorUtility.SetDirty(asset);
+                        onChanged?.Invoke();
+                    });
+                    return field;
+                }
+
                 case BtValueType.String:
                 default:
                 {
@@ -139,6 +162,71 @@ namespace GGemCo2DAiBtEditor
                     return field;
                 }
             }
+        }
+
+        private static bool IsSkillUidParam(string nodeTypeId, string paramKey)
+        {
+            if (!string.Equals(paramKey, "skillUid", StringComparison.Ordinal))
+                return false;
+
+            return string.Equals(nodeTypeId, "Condition.CanUseSkill", StringComparison.Ordinal)
+                   || string.Equals(nodeTypeId, "Condition.SkillUseCountCompare", StringComparison.Ordinal)
+                   || string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal);
+        }
+
+        private static VisualElement CreateSkillUidDropdownField(
+            EditorWindow owner,
+            MonsterBehaviorTreeAsset asset,
+            BtNodeRecord node,
+            BtParamDef def,
+            int currentUid,
+            Action onChanged)
+        {
+            // owner는 MonsterBtDesignerWindow 인스턴스를 전달하는 것을 권장한다.
+            // (fallback: focusedWindow)
+            owner ??= EditorWindow.focusedWindow;
+
+            var options = BtSkillDropdownProvider.GetOptions();
+            int selectedIndex = BtSkillDropdownProvider.FindIndexByUid(options, currentUid);
+
+            var button = new Button();
+            button.style.height = 20;
+            button.style.unityTextAlign = TextAnchor.MiddleLeft;
+            button.text = BtSkillDropdownProvider.FormatSelected(options, selectedIndex, currentUid);
+
+            button.clicked += () =>
+            {
+                if (owner == null)
+                {
+                    Debug.LogWarning("[BT] SearchableDropdown requires an owner EditorWindow.");
+                    return;
+                }
+
+                // 매번 최신 테이블을 반영할 수 있도록 클릭 시에도 옵션을 재조회한다.
+                var latestOptions = BtSkillDropdownProvider.GetOptions(forceReload: false);
+                int latestSelectedIndex = BtSkillDropdownProvider.FindIndexByUid(latestOptions, GetInt(node.parameters, def.Key, currentUid));
+
+                Rect rect = SearchableDropdownUtility.GetScreenRect(owner, button);
+                SearchableDropdownUtility.ShowUiToolkit(
+                    owner: owner,
+                    activatorRectScreen: rect,
+                    options: latestOptions,
+                    selectedIndex: latestSelectedIndex,
+                    onSelected: (idx, opt) =>
+                    {
+                        Undo.RecordObject(asset, "Edit BT Param");
+                        SetInt(node.parameters, def.Key, opt.Data);
+                        EditorUtility.SetDirty(asset);
+                        button.text = BtSkillDropdownProvider.FormatSelected(latestOptions, idx, opt.Data);
+                        onChanged?.Invoke();
+                    },
+                    maxVisibleItems: 12,
+                    rowHeight: 20f,
+                    popupWidth: 420f,
+                    defaultSearchMode: SearchableDropdownUtility.SearchMode.Both);
+            };
+
+            return button;
         }
 
         private static void EnsureParamExists(BtNodeRecord node, BtParamDef def)
@@ -162,6 +250,9 @@ namespace GGemCo2DAiBtEditor
                     break;
                 case BtValueType.Bool:
                     p.boolValue = def.DefaultValue is bool b && b;
+                    break;
+                case BtValueType.EnumString:
+                    p.enumValue = def.DefaultValue?.ToString() ?? string.Empty;
                     break;
                 case BtValueType.String:
                 default:
@@ -252,6 +343,24 @@ namespace GGemCo2DAiBtEditor
                 return;
             }
             list.Add(new BtParamValue { key = key, valueType = BtValueType.String, stringValue = value });
+        }
+
+        private static string GetEnumString(List<BtParamValue> list, string key, string fallback)
+        {
+            return BtParamValue.TryGetEnumString(list, key, out string v) ? v : fallback;
+        }
+
+        private static void SetEnumString(List<BtParamValue> list, string key, string value)
+        {
+            if (TryFindParam(list, key, out int idx))
+            {
+                var p = list[idx];
+                p.valueType = BtValueType.EnumString;
+                p.enumValue = value;
+                list[idx] = p;
+                return;
+            }
+            list.Add(new BtParamValue { key = key, valueType = BtValueType.EnumString, enumValue = value });
         }
     }
 }
