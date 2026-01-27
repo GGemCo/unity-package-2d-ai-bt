@@ -16,8 +16,9 @@ namespace GGemCo2DAiBtEditor
     /// - 파라미터: typeId 기반 ParamDef로 자동 UI 생성
     /// - 디버그: Runner Attach 후 조건 평가 값(거리/HP 등) 표시 + 실행 경로 하이라이트
     /// </summary>
-    public sealed class MonsterBtDesignerWindow : EditorWindow
+    public sealed class CreateBtWindow : EditorWindow
     {
+        private const string Title = "BT 생성/테스트 툴";
         private MonsterBehaviorTreeAsset _asset;
 
         private BtGraphView _graphView;
@@ -35,13 +36,13 @@ namespace GGemCo2DAiBtEditor
         private ReorderableList _childrenReorder;
         private IMGUIContainer _childrenReorderContainer;
 
-        [MenuItem("GGemCo/AI/BT Designer")]
+        [MenuItem(ConfigEditorAiBt.NameToolCreateBt, false, (int)ConfigEditorAiBt.ToolOrdering.CreateBt)]
         public static void OpenMenu() => Open(null);
 
         public static void Open(MonsterBehaviorTreeAsset asset)
         {
-            var wnd = GetWindow<MonsterBtDesignerWindow>();
-            wnd.titleContent = new GUIContent("Monster BT Designer");
+            var wnd = GetWindow<CreateBtWindow>();
+            wnd.titleContent = new GUIContent(Title);
             wnd.minSize = new Vector2(1080, 640);
             wnd.SetAsset(asset);
             wnd.Show();
