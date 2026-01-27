@@ -18,7 +18,7 @@ namespace GGemCo2DAiBtEditor
     /// </summary>
     public sealed class BtGraphView : GraphView
     {
-        private readonly MonsterBtDesignerWindow _window;
+        private readonly CreateBtWindow _window;
         private MonsterBehaviorTreeAsset _asset;
 
         public event Action<string> OnSelectionChanged;
@@ -34,7 +34,7 @@ namespace GGemCo2DAiBtEditor
         // PopulateFromAsset() 등 내부 리빌드 과정에서 발생하는 GraphViewChange를 데이터 삭제로 처리하지 않도록 억제한다.
         private bool _suppressGraphViewChanges;
 
-        public BtGraphView(MonsterBtDesignerWindow window)
+        public BtGraphView(CreateBtWindow window)
         {
             _window = window;
 
