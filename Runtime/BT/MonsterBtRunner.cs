@@ -51,12 +51,82 @@ namespace GGemCo2DAiBt
         private IMonsterCombatDriver _driver;
         private IMonsterSkillDriver _skillDriver;
 
+        private bool _isExecuting;
+        private bool _hasPendingTreeChange;
+        private MonsterBehaviorTreeAsset _pendingTreeAsset;
+        private BtTreeSwitchMode _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
+
         public bool IsActive => enabled && isActiveAndEnabled && treeAsset != null && !string.IsNullOrEmpty(treeAsset.rootNodeId);
 
-        public void SetTree(MonsterBehaviorTreeAsset asset)
+        /// <summary>
+        /// 런타임 BT가 교체되었을 때 호출된다.
+        /// </summary>
+        public event Action<MonsterBtRunner, MonsterBehaviorTreeAsset, MonsterBehaviorTreeAsset> TreeChanged;
+
+        /// <summary>
+        /// 런타임에 본 몬스터의 Behavior Tree 에셋을 교체한다.
+        /// </summary>
+        /// <remarks>
+        /// - 교체 시 노드 캐시/런타임 상태/블랙보드가 재구성된다.
+        /// - 실행 중(틱 평가 중) 호출되면 다음 프레임 틱 시작 전에 지연 적용된다.
+        /// </remarks>
+        public void SetTree(MonsterBehaviorTreeAsset asset, BtTreeSwitchMode mode = BtTreeSwitchMode.ResetAll)
         {
-            treeAsset = asset;
+            if (asset == treeAsset && !_hasPendingTreeChange)
+                return;
+
+            if (_isExecuting)
+            {
+                _pendingTreeAsset = asset;
+                _pendingSwitchMode = mode;
+                _hasPendingTreeChange = true;
+                return;
+            }
+
+            ApplyTreeChange(asset, mode);
+        }
+
+        /// <summary>
+        /// BT 교체 시 런타임 상태 보존 정책.
+        /// </summary>
+        public enum BtTreeSwitchMode
+        {
+            /// <summary>런타임 상태/블랙보드/스킬 사용 횟수까지 모두 초기화한다.</summary>
+            ResetAll = 0,
+
+            /// <summary>블랙보드의 공통 키 값을 복사한다(스킬 사용 횟수 캐시는 초기화).</summary>
+            PreserveBlackboardValues = 1,
+
+            /// <summary>블랙보드의 공통 키 값 + 스킬 사용 횟수 캐시를 유지한다.</summary>
+            PreserveBlackboardAndSkillUseCounts = 2,
+        }
+
+        private void ApplyTreeChange(MonsterBehaviorTreeAsset newAsset, BtTreeSwitchMode mode)
+        {
+            var prev = treeAsset;
+            var prevBlackboard = _blackboard;
+
+            treeAsset = newAsset;
+
+            // 기본은 전체 초기화
             RebuildCache();
+
+            if (newAsset != null && prevBlackboard != null)
+            {
+                if (mode == BtTreeSwitchMode.PreserveBlackboardValues)
+                {
+                    _blackboard.CopyCommonValuesFrom(prevBlackboard, includeSkillUseCounts: false);
+                }
+                else if (mode == BtTreeSwitchMode.PreserveBlackboardAndSkillUseCounts)
+                {
+                    _blackboard.CopyCommonValuesFrom(prevBlackboard, includeSkillUseCounts: true);
+                }
+            }
+
+            _hasPendingTreeChange = false;
+            _pendingTreeAsset = null;
+
+            TreeChanged?.Invoke(this, prev, newAsset);
         }
 
         private void Awake()
@@ -91,6 +161,11 @@ namespace GGemCo2DAiBt
 
         private void Update()
         {
+            if (_hasPendingTreeChange)
+            {
+                ApplyTreeChange(_pendingTreeAsset, _pendingSwitchMode);
+            }
+
             if (!IsActive) return;
 
             // Monster가 런타임에 ControllerMonster를 AddComponent 하는 구조이므로,
@@ -128,7 +203,15 @@ namespace GGemCo2DAiBt
             }
 
             var ctx = new BtContext(this, _driver, _skillDriver, _blackboard, _runtime, enableDebugLog);
-            ExecuteNode(treeAsset.rootNodeId, ctx, depth: 0);
+            try
+            {
+                _isExecuting = true;
+                ExecuteNode(treeAsset.rootNodeId, ctx, depth: 0);
+            }
+            finally
+            {
+                _isExecuting = false;
+            }
 
             if (enableDebugTrace)
             {

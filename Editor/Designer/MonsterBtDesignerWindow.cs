@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using System;
 using System.Linq;
 using GGemCo2DAiBt;
 using UnityEditor;
@@ -27,6 +28,8 @@ namespace GGemCo2DAiBtEditor
 
         // Debug attach
         private MonsterBtRunner _runner;
+
+        private ToolbarButton _applyTreeToRunnerButton;
 
         // Children reorder
         private ReorderableList _childrenReorder;
@@ -113,6 +116,13 @@ namespace GGemCo2DAiBtEditor
             toolbar.Add(new ToolbarSpacer());
             toolbar.Add(runnerField);
 
+            // Runner에 현재 디자이너의 Tree Asset을 적용(런타임/에디트 모드 모두 지원)
+            _applyTreeToRunnerButton = new ToolbarButton(ApplyTreeAssetToRunner)
+            {
+                text = "Apply Tree To Runner"
+            };
+            toolbar.Add(_applyTreeToRunnerButton);
+
             root.Add(toolbar);
 
             // Split
@@ -161,6 +171,109 @@ namespace GGemCo2DAiBtEditor
             AttachRunnerEvents();
             RefreshInspector(_selectedNodeId);
             UpdateStatus();
+        }
+
+        private static bool TryInvokeRunnerSetTree(MonsterBtRunner runner, MonsterBehaviorTreeAsset asset)
+        {
+            if (runner == null) return false;
+
+            var t = runner.GetType();
+
+            // 1) public void SetTree(MonsterBehaviorTreeAsset asset)
+            var m1 = t.GetMethod("SetTree", new[] { typeof(MonsterBehaviorTreeAsset) });
+            if (m1 != null)
+            {
+                m1.Invoke(runner, new object[] { asset });
+                return true;
+            }
+
+            // 2) public void SetTree(MonsterBehaviorTreeAsset asset, BtTreeSwitchMode mode)
+            // 패키지 버전에 따라 switch enum이 중첩 타입일 수 있다.
+            var enumType = t.GetNestedType("BtTreeSwitchMode");
+            if (enumType != null && enumType.IsEnum)
+            {
+                var m2 = t.GetMethod("SetTree", new[] { typeof(MonsterBehaviorTreeAsset), enumType });
+                if (m2 != null)
+                {
+                    object mode;
+                    // 가능한 한 상태를 유지하는 모드를 우선 사용
+                    if (Enum.GetNames(enumType).Contains("PreserveBlackboardValues"))
+                        mode = Enum.Parse(enumType, "PreserveBlackboardValues");
+                    else if (Enum.GetNames(enumType).Contains("PreserveBlackboardAndSkillUseCounts"))
+                        mode = Enum.Parse(enumType, "PreserveBlackboardAndSkillUseCounts");
+                    else
+                        mode = Enum.GetValues(enumType).GetValue(0);
+
+                    m2.Invoke(runner, new[] { asset, mode });
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ApplyTreeAssetToRunner()
+        {
+            if (_runner == null)
+            {
+                UpdateStatus("No runner attached.");
+                return;
+            }
+
+            if (_asset == null)
+            {
+                UpdateStatus("No tree asset selected.");
+                return;
+            }
+
+            // Play Mode: 안전한 런타임 교체 API를 우선 사용
+            if (EditorApplication.isPlaying)
+            {
+                var type = typeof(MonsterBtRunner);
+
+                // 최신 버전: SetTree(MonsterBehaviorTreeAsset, BtTreeSwitchMode)
+                var m2 = type.GetMethods()
+                    .FirstOrDefault(m =>
+                        m.Name == "SetTree" &&
+                        m.GetParameters().Length == 2 &&
+                        m.GetParameters()[0].ParameterType == typeof(MonsterBehaviorTreeAsset));
+
+                if (m2 != null)
+                {
+                    var modeType = m2.GetParameters()[1].ParameterType;
+                    object modeValue = null;
+
+                    // 기본값은 Blackboard 유지(가능하면)
+                    var preserve = System.Enum.GetNames(modeType).FirstOrDefault(n => n.Contains("PreserveBlackboard"));
+                    modeValue = preserve != null ? System.Enum.Parse(modeType, preserve) : System.Enum.GetValues(modeType).GetValue(0);
+
+                    m2.Invoke(_runner, new[] { (object)_asset, modeValue });
+                }
+                else
+                {
+                    // 구버전: SetTree(MonsterBehaviorTreeAsset)
+                    _runner.SetTree(_asset);
+                }
+
+                UpdateStatus("Applied tree to runner (Play Mode)." );
+                _graphView?.ApplyDebug(_runner);
+                return;
+            }
+
+            // Edit Mode: SerializedProperty로 treeAsset 교체
+            var so = new SerializedObject(_runner);
+            var prop = so.FindProperty("treeAsset");
+            if (prop == null)
+            {
+                UpdateStatus("Runner does not expose serialized 'treeAsset'.");
+                return;
+            }
+
+            Undo.RecordObject(_runner, "Apply BT Tree Asset");
+            prop.objectReferenceValue = _asset;
+            so.ApplyModifiedProperties();
+            EditorUtility.SetDirty(_runner);
+            UpdateStatus("Applied tree to runner (Edit Mode)." );
         }
 
         private void OnDisable()
@@ -472,8 +585,14 @@ namespace GGemCo2DAiBtEditor
 
         private void UpdateStatus(string message = null)
         {
+            _applyTreeToRunnerButton?.SetEnabled(_runner != null && _asset != null);
+
             if (_statusLabel == null) return;
             if (_asset == null) { _statusLabel.text = "No asset selected."; return; }
+
+            _applyTreeToRunnerButton?.SetEnabled(_runner != null && _asset != null);
+
+            _applyTreeToRunnerButton?.SetEnabled(_runner != null && _asset != null);
 
             _statusLabel.text = string.IsNullOrEmpty(message)
                 ? $"Asset: {_asset.name} | Nodes: {_asset.nodes.Count}"

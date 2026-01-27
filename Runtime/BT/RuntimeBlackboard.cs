@@ -158,5 +158,42 @@ namespace GGemCo2DAiBt
         {
             _skillUseCounts.Clear();
         }
+
+        /// <summary>
+        /// 다른 블랙보드에서 공통 키의 값을 복사한다.
+        /// </summary>
+        /// <remarks>
+        /// - 키 이름이 동일하고, 타입이 동일한 항목만 복사한다.
+        /// - 스키마에 정의되지 않은 동적 값은 복사 대상이 아니다.
+        /// </remarks>
+        public void CopyCommonValuesFrom(RuntimeBlackboard source, bool includeSkillUseCounts)
+        {
+            if (source == null) return;
+
+            // 스키마 기반 키 복사
+            foreach (var kv in _indexByName)
+            {
+                var key = kv.Key;
+                int dstIndex = kv.Value;
+
+                if (!source._indexByName.TryGetValue(key, out int srcIndex))
+                    continue;
+
+                var srcEntry = source._entries[srcIndex];
+                var dstEntry = _entries[dstIndex];
+
+                if (srcEntry.Type != dstEntry.Type)
+                    continue;
+
+                _entries[dstIndex] = srcEntry;
+            }
+
+            if (includeSkillUseCounts)
+            {
+                _skillUseCounts.Clear();
+                foreach (var kv in source._skillUseCounts)
+                    _skillUseCounts[kv.Key] = kv.Value;
+            }
+        }
     }
 }
