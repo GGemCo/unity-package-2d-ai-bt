@@ -505,6 +505,9 @@ namespace GGemCo2DAiBt
                     return BtStatus.Failure;
                 }
 
+                case BtTypeIds.Action.ClearAggro:
+                    ctx.Driver.RequestClearAggro();
+                    return BtStatus.Success;
                 default:
                     return BtStatus.Failure;
             }

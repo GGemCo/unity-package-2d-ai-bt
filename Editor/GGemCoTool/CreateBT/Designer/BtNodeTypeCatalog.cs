@@ -69,6 +69,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.MoveToTarget", DisplayName = "Move To Target" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.AttackBasic", DisplayName = "Attack Basic" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ClearAggro", DisplayName = "Clear Aggro" },
         };
 
         private static readonly Dictionary<string, IReadOnlyList<BtParamDef>> ParamDefsByTypeId =
