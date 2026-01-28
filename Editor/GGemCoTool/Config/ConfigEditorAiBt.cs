@@ -82,7 +82,7 @@ namespace GGemCo2DAiBtEditor
         /// </summary>
         private const string NameToolDevelopment = NameToolGGemCoSkill + "개발툴/";
 
-        public const string NameToolCreateBt= NameToolDevelopment + "BT 생성/테스트 툴";
+        public const string NameToolCreateBt= NameToolDevelopment + "BT 생성&테스트 툴";
 
         // 테스트
 
