@@ -60,17 +60,39 @@ namespace GGemCo2DAiBt
             if (ch == null || !ch.IsMonster())
                 return Task.CompletedTask;
 
-            // Runner는 CharacterManager 스폰 이벤트에서 붙이는 것을 원칙으로 하되,
-            // Hook 경로에서도 방어적으로 누락 시 추가한다.
+            var info = TableLoaderManager.Instance.TableMonster.GetDataByUid(ch.uid);
+            if (GcLogger.IsNull(info, $"몬스터 테이블에 정보가 없습니다. uid: {ch.uid}"))
+                return Task.CompletedTask;
+
+            // BT가 없으면: Runner를 비활성(또는 미부착)하고 레거시 Brain을 사용한다.
+            if (string.IsNullOrWhiteSpace(info.BtFileName))
+            {
+                var existingRunner = ch.GetComponent<MonsterBtRunner>();
+                if (existingRunner != null)
+                    existingRunner.enabled = false;
+
+                if (addIfMissing)
+                {
+                    var legacy = ch.GetComponent<MonsterLegacyBrain>();
+                    if (legacy == null) legacy = ch.gameObject.AddComponent<MonsterLegacyBrain>();
+                    legacy.enabled = true;
+                }
+
+                return Task.CompletedTask;
+            }
+
+            // BT가 있으면: 레거시 Brain은 억제하고 Runner를 부착/활성한다.
+            var legacyBrain = ch.GetComponent<MonsterLegacyBrain>();
+            if (legacyBrain != null) legacyBrain.enabled = false;
+
             var runner = ch.GetComponent<MonsterBtRunner>();
             if (runner == null)
                 runner = ch.gameObject.AddComponent<MonsterBtRunner>();
+            runner.enabled = true;
 
-            var info = TableLoaderManager.Instance.TableMonster.GetDataByUid(ch.uid);
-            if (GcLogger.IsNull(info, $"몬스터 테이블에 정보가 없습니다. uid: {ch.uid}")) return Task.CompletedTask;
-            if (string.IsNullOrWhiteSpace(info.BtFileName)) return Task.CompletedTask;
-
-            return AddressableLoaderMonsterBt.LoadAndApplyAsync(ConfigAddressableKeyAiBt.GetMonsterBt(info.BtFileName), runner);
+            return AddressableLoaderMonsterBt.LoadAndApplyAsync(
+                ConfigAddressableKeyAiBt.GetMonsterBt(info.BtFileName),
+                runner);
         }
 
         private void OnMapUnload()

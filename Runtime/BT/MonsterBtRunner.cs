@@ -14,14 +14,14 @@ namespace GGemCo2DAiBt
     /// - Core 패키지는 본 BT 패키지를 참조하지 않는다(의존성 단방향).
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class MonsterBtRunner : MonoBehaviour
+    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrain
     {
         [Header("Behavior Tree")]
         [SerializeField] private MonsterBehaviorTreeAsset treeAsset;
 
         [Header("Tick")]
         [SerializeField, Tooltip("0 이면 Update 프레임마다 평가한다. 0보다 크면 해당 Hz로 평가한다.")]
-        private float tickRateHz = 10f;
+        private float tickRateHz = 0f;
 
         [Header("Debug")]
         [SerializeField] private bool enableDebugLog;
@@ -55,6 +55,8 @@ namespace GGemCo2DAiBt
         private bool _hasPendingTreeChange;
         private MonsterBehaviorTreeAsset _pendingTreeAsset;
         private BtTreeSwitchMode _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
+
+        public int Priority => 100;
 
         public bool IsActive => enabled && isActiveAndEnabled && treeAsset != null && !string.IsNullOrEmpty(treeAsset.rootNodeId);
 
@@ -167,6 +169,7 @@ namespace GGemCo2DAiBt
             }
 
             if (!IsActive) return;
+            if (!MonsterBrainSelector.IsHighestPriority(this, gameObject)) return;
 
             // Monster가 런타임에 ControllerMonster를 AddComponent 하는 구조이므로,
             // 최초 몇 프레임은 드라이버가 아직 없을 수 있다. 매 틱 느슨하게 획득한다.
@@ -662,6 +665,13 @@ namespace GGemCo2DAiBt
             {
                 return BtParamValue.TryGetEnumString(node.parameters, key, out string v) && !string.IsNullOrEmpty(v) ? v : fallback;
             }
+        }
+        public void OnCharacterTriggerEnter(Collider2D collision)
+        {
+        }
+
+        public void OnCharacterTriggerExit(Collider2D collision)
+        {
         }
     }
 }
