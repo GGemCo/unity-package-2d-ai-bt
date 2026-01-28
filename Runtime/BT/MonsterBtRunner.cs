@@ -14,7 +14,7 @@ namespace GGemCo2DAiBt
     /// - Core 패키지는 본 BT 패키지를 참조하지 않는다(의존성 단방향).
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrain
+    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable
     {
         [Header("Behavior Tree")]
         [SerializeField] private MonsterBehaviorTreeAsset treeAsset;
@@ -58,7 +58,8 @@ namespace GGemCo2DAiBt
 
         public int Priority => 100;
 
-        public bool IsActive => enabled && isActiveAndEnabled && treeAsset != null && !string.IsNullOrEmpty(treeAsset.rootNodeId);
+        public bool IsActive => enabled && isActiveAndEnabled && treeAsset != null &&
+                                !string.IsNullOrEmpty(treeAsset.rootNodeId);
 
         /// <summary>
         /// 런타임 BT가 교체되었을 때 호출된다.
@@ -161,7 +162,7 @@ namespace GGemCo2DAiBt
             }
         }
 
-        private void Update()
+        public void Tick()
         {
             if (_hasPendingTreeChange)
             {
