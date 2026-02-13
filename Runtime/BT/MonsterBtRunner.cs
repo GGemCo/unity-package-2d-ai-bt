@@ -50,6 +50,7 @@ namespace GGemCo2DAiBt
 
         private IMonsterCombatDriver _driver;
         private IMonsterSkillDriver _skillDriver;
+        private IMonsterBrainSuspendProvider _suspendProvider;
 
         private bool _isExecuting;
         private bool _hasPendingTreeChange;
@@ -178,8 +179,13 @@ namespace GGemCo2DAiBt
                 _driver = GetComponent<IMonsterCombatDriver>();
             if (_skillDriver == null)
                 _skillDriver = GetComponent<IMonsterSkillDriver>();
+            if (_suspendProvider == null)
+                _suspendProvider = GetComponent<IMonsterBrainSuspendProvider>();
 
             if (_driver == null) return;
+
+            // 그로기/기절/컷씬 등으로 Brain 평가를 중지해야 하는 경우, 이번 틱은 스킵한다.
+            if (_suspendProvider != null && _suspendProvider.ShouldSuspendBrain) return;
 
             float now = Time.time;
             if (tickRateHz > 0f)
