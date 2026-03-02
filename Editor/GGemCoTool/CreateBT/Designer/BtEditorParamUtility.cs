@@ -220,9 +220,6 @@ namespace GGemCo2DAiBtEditor
                         button.text = BtSkillDropdownProvider.FormatSelected(latestOptions, idx, opt.Data);
                         onChanged?.Invoke();
                     },
-                    maxVisibleItems: 12,
-                    rowHeight: 20f,
-                    popupWidth: 420f,
                     defaultSearchMode: SearchableDropdownUtility.SearchMode.Both);
             };
 
