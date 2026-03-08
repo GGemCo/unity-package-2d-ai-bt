@@ -461,10 +461,16 @@ namespace GGemCo2DAiBtEditor
                 {
                     Undo.RecordObject(_asset, "Remove BT Child");
                     node.children.RemoveAt(index);
+                    
+                    if (node.typeId == BtTypeIds.Composite.RandomWeighted)
+                    {
+                        BtEditorParamUtility.EnsureParams(node, _asset);
+                    }
+                    
                     EditorUtility.SetDirty(_asset);
-                    _graphView.PopulateFromAsset();
-                    _graphView.ApplyDebug(_runner);
-                    _graphView.SelectNode(node.id);
+                    _graphView?.PopulateFromAsset();
+                    _graphView?.ApplyDebug(_runner);
+                    _graphView?.SelectNode(node.id);
                     UpdateStatus("Child removed.");
                 }
             };
@@ -473,9 +479,9 @@ namespace GGemCo2DAiBtEditor
             {
                 Undo.RecordObject(_asset, "Reorder BT Children");
                 EditorUtility.SetDirty(_asset);
-                _graphView.PopulateFromAsset();
-                _graphView.ApplyDebug(_runner);
-                _graphView.SelectNode(node.id);
+                _graphView?.PopulateFromAsset();
+                _graphView?.ApplyDebug(_runner);
+                _graphView?.SelectNode(node.id);
                 UpdateStatus("Children reordered.");
             };
 

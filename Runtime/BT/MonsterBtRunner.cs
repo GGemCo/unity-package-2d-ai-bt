@@ -514,6 +514,45 @@ namespace GGemCo2DAiBt
                 case BtTypeIds.Action.ClearAggro:
                     ctx.Driver.RequestClearAggro();
                     return BtStatus.Success;
+                case BtTypeIds.Action.ResetSkillUseCount:
+                {
+                    if (ctx.Blackboard == null)
+                        return BtStatus.Failure;
+
+                    string mode = ctx.GetEnumStringParam(node, "mode", fallback: "AllReset");
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    int value = ctx.GetIntParam(node, "value", fallback: 0);
+
+                    switch (mode)
+                    {
+                        case "AllReset":
+                            ctx.Blackboard.ClearAllSkillUseCounts();
+                            AddMetric(node.id, "Mode", 0f, "AllReset");
+                            return BtStatus.Success;
+
+                        case "ResetOne":
+                            if (skillUid <= 0)
+                                return BtStatus.Failure;
+
+                            ctx.Blackboard.ResetSkillUseCount(skillUid);
+                            AddMetric(node.id, "Mode", 1f, "ResetOne");
+                            AddMetric(node.id, "SkillUid", skillUid);
+                            return BtStatus.Success;
+
+                        case "SetOne":
+                            if (skillUid <= 0)
+                                return BtStatus.Failure;
+
+                            ctx.Blackboard.SetSkillUseCount(skillUid, Mathf.Max(0, value));
+                            AddMetric(node.id, "Mode", 2f, "SetOne");
+                            AddMetric(node.id, "SkillUid", skillUid);
+                            AddMetric(node.id, "Value", value);
+                            return BtStatus.Success;
+
+                        default:
+                            return BtStatus.Failure;
+                    }
+                }
                 default:
                     return BtStatus.Failure;
             }

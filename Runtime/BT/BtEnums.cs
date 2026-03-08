@@ -89,6 +89,7 @@ namespace GGemCo2DAiBt
             public const string AttackBasic = "Action.AttackBasic";
             public const string UseSkill = "Action.UseSkill";
             public const string ClearAggro = "Action.ClearAggro";
+            public const string ResetSkillUseCount = "Action.ResetSkillUseCount";
         }
     }
 }

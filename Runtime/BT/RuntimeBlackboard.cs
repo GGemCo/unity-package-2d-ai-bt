@@ -121,6 +121,8 @@ namespace GGemCo2DAiBt
             return true;
         }
 
+        #region 스킬
+        
         /// <summary>
         /// 특정 스킬 UID의 사용 횟수를 조회한다. (없으면 0)
         /// </summary>
@@ -158,6 +160,25 @@ namespace GGemCo2DAiBt
         {
             _skillUseCounts.Clear();
         }
+        
+        /// <summary>
+        /// 특정 스킬 UID의 사용 횟수를 지정 값으로 설정한다.
+        /// 0 이하면 캐시에서 제거한다.
+        /// </summary>
+        public void SetSkillUseCount(int skillUid, int value)
+        {
+            if (skillUid <= 0)
+                return;
+
+            if (value <= 0)
+            {
+                _skillUseCounts.Remove(skillUid);
+                return;
+            }
+
+            _skillUseCounts[skillUid] = value;
+        }
+        #endregion
 
         /// <summary>
         /// 다른 블랙보드에서 공통 키의 값을 복사한다.

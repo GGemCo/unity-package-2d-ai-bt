@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using GGemCo2DAiBt;
 using GGemCo2DCoreEditor;
 using UnityEditor;
@@ -205,15 +206,29 @@ namespace GGemCo2DAiBtEditor
                 case BtValueType.EnumString:
                 {
                     var v = GetEnumString(node.parameters, def.Key, def.DefaultValue?.ToString() ?? "");
-                    var field = new TextField { value = v };
-                    field.RegisterValueChangedCallback(evt =>
+
+                    if (TryGetEnumOptions(node.typeId, def.Key, out var options) && options.Length > 0)
+                    {
+                        var field = new PopupField<string>(options.ToList(), Mathf.Max(0, Array.IndexOf(options, v)));
+                        field.RegisterValueChangedCallback(evt =>
+                        {
+                            Undo.RecordObject(asset, "Edit BT Param");
+                            SetEnumString(node.parameters, def.Key, evt.newValue);
+                            EditorUtility.SetDirty(asset);
+                            onChanged?.Invoke();
+                        });
+                        return field;
+                    }
+
+                    var textField = new TextField { value = v };
+                    textField.RegisterValueChangedCallback(evt =>
                     {
                         Undo.RecordObject(asset, "Edit BT Param");
                         SetEnumString(node.parameters, def.Key, evt.newValue);
                         EditorUtility.SetDirty(asset);
                         onChanged?.Invoke();
                     });
-                    return field;
+                    return textField;
                 }
 
                 case BtValueType.String:
@@ -240,7 +255,8 @@ namespace GGemCo2DAiBtEditor
 
             return string.Equals(nodeTypeId, "Condition.CanUseSkill", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Condition.SkillUseCountCompare", StringComparison.Ordinal)
-                   || string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal);
+                   || string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal)
+                   || string.Equals(nodeTypeId, "Action.ResetSkillUseCount", StringComparison.Ordinal);
         }
 
         private static VisualElement CreateSkillUidDropdownField(
@@ -427,6 +443,33 @@ namespace GGemCo2DAiBtEditor
                 return;
             }
             list.Add(new BtParamValue { key = key, valueType = BtValueType.EnumString, enumValue = value });
+        }
+        private static bool TryGetEnumOptions(string nodeTypeId, string key, out string[] options)
+        {
+            options = null;
+
+            if (string.Equals(nodeTypeId, "Condition.SkillUseCountCompare", StringComparison.Ordinal) &&
+                string.Equals(key, "op", StringComparison.Ordinal))
+            {
+                options = new[] { ">", ">=", "==", "!=", "<", "<=" };
+                return true;
+            }
+
+            if (string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal) &&
+                string.Equals(key, "busyReturn", StringComparison.Ordinal))
+            {
+                options = new[] { "Running", "Success" };
+                return true;
+            }
+
+            if (string.Equals(nodeTypeId, "Action.ResetSkillUseCount", StringComparison.Ordinal) &&
+                string.Equals(key, "mode", StringComparison.Ordinal))
+            {
+                options = new[] { "AllReset", "ResetOne", "SetOne" };
+                return true;
+            }
+
+            return false;
         }
     }
 }

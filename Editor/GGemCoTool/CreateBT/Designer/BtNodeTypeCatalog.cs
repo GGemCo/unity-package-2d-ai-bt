@@ -70,6 +70,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.AttackBasic", DisplayName = "Attack Basic" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ClearAggro", DisplayName = "Clear Aggro" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ResetSkillUseCount", DisplayName = "Reset Skill Use Count" },
         };
 
         private static readonly Dictionary<string, IReadOnlyList<BtParamDef>> ParamDefsByTypeId =
@@ -121,7 +122,12 @@ namespace GGemCo2DAiBtEditor
                     // EnumString: Running / Success
                     new BtParamDef("busyReturn", BtValueType.EnumString, required: false, defaultValue: "Running"),
                 },
-
+                ["Action.ResetSkillUseCount"] = new List<BtParamDef>
+                {
+                    new BtParamDef("mode", BtValueType.EnumString, required: true, defaultValue: "AllReset"),
+                    new BtParamDef("skillUid", BtValueType.Int, required: false, defaultValue: 0),
+                    new BtParamDef("value", BtValueType.Int, required: false, defaultValue: 0),
+                },
             };
 
         public static IReadOnlyList<BtParamDef> GetParamDefs(string typeId)

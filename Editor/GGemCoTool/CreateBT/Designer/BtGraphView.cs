@@ -33,7 +33,15 @@ namespace GGemCo2DAiBtEditor
 
         // PopulateFromAsset() 등 내부 리빌드 과정에서 발생하는 GraphViewChange를 데이터 삭제로 처리하지 않도록 억제한다.
         private bool _suppressGraphViewChanges;
-
+        
+        // 마우스 우클릭 드래그
+        private bool _isRightPanning;
+        private bool _rightMousePressed;
+        private bool _suppressContextMenuOnce;
+        private Vector2 _rightMouseDownPos;
+        private Vector2 _lastMousePos;
+        private const float RightPanStartThreshold = 4f;
+        
         public BtGraphView(CreateBtWindow window)
         {
             _window = window;
@@ -49,20 +57,66 @@ namespace GGemCo2DAiBtEditor
 
             // 배경 클릭 시에만 선택 해제(null selection)를 인정한다.
             RegisterCallback<MouseDownEvent>(OnMouseDown, TrickleDown.TrickleDown);
+            RegisterCallback<MouseMoveEvent>(OnMouseMove, TrickleDown.TrickleDown);
+            RegisterCallback<MouseUpEvent>(OnMouseUp, TrickleDown.TrickleDown);
         }
 
         private void OnMouseDown(MouseDownEvent evt)
         {
-            if (evt.button != 0)
+            if (evt.button == 0)
+            {
+                // Node/Port를 클릭한 경우는 selection이 유지/변경되므로 별도 처리 불필요.
+                // 배경(GridBackground, contentViewContainer, GraphView itself)을 클릭한 경우에만
+                // 다음 PollSelectionChange에서 null selection을 반영하도록 플래그를 켠다.
+                var ve = evt.target as VisualElement;
+                _clearSelectionRequested = IsBackgroundElement(ve);
+                return;
+            }
+
+            if (evt.button == 1)
+            {
+                _rightMousePressed = true;
+                _isRightPanning = false;
+                _suppressContextMenuOnce = false;
+                _rightMouseDownPos = evt.mousePosition;
+                _lastMousePos = evt.mousePosition;
+            }
+        }
+        private void OnMouseMove(MouseMoveEvent evt)
+        {
+            if (!_rightMousePressed)
                 return;
 
-            // Node/Port를 클릭한 경우는 selection이 유지/변경되므로 별도 처리 불필요.
-            // 배경(GridBackground, contentViewContainer, GraphView itself)을 클릭한 경우에만
-            // 다음 PollSelectionChange에서 null selection을 반영하도록 플래그를 켠다.
-            var ve = evt.target as VisualElement;
-            _clearSelectionRequested = IsBackgroundElement(ve);
-        }
+            if (!_isRightPanning)
+            {
+                float distance = Vector2.Distance(evt.mousePosition, _rightMouseDownPos);
+                if (distance >= RightPanStartThreshold)
+                {
+                    _isRightPanning = true;
+                    _suppressContextMenuOnce = true;
+                }
+            }
 
+            if (!_isRightPanning)
+                return;
+
+            Vector2 delta = evt.mousePosition - _lastMousePos;
+            viewTransform.position += (Vector3)delta;
+            _lastMousePos = evt.mousePosition;
+
+            evt.StopImmediatePropagation();
+        }
+        private void OnMouseUp(MouseUpEvent evt)
+        {
+            if (evt.button != 1)
+                return;
+
+            if (_isRightPanning)
+                evt.StopImmediatePropagation();
+
+            _rightMousePressed = false;
+            _isRightPanning = false;
+        }
         private bool IsBackgroundElement(VisualElement ve)
         {
             if (ve == null) return false;
@@ -430,6 +484,12 @@ namespace GGemCo2DAiBtEditor
         }
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
+            if (_suppressContextMenuOnce)
+            {
+                _suppressContextMenuOnce = false;
+                return;
+            }
+
             base.BuildContextualMenu(evt);
 
             if (_asset == null)
@@ -438,7 +498,6 @@ namespace GGemCo2DAiBtEditor
                 return;
             }
 
-            // GraphView 좌표계 → contentViewContainer 로컬 좌표계 변환
             var graphPos = contentViewContainer.WorldToLocal(evt.mousePosition);
 
             foreach (var def in BtNodeTypeCatalog.All)
