@@ -20,24 +20,45 @@ namespace GGemCo2DAiBtEditor
             node.parameters ??= new List<BtParamValue>();
 
             var defs = BtNodeTypeCatalog.GetParamDefs(node.typeId);
-            if (defs == null) return;
-
-            foreach (var def in defs)
+            if (defs != null)
             {
-                if (TryFindParam(node.parameters, def.Key, out _))
-                    continue;
+                foreach (var def in defs)
+                {
+                    if (TryFindParam(node.parameters, def.Key, out _))
+                        continue;
 
-                node.parameters.Add(CreateDefaultParam(def));
+                    node.parameters.Add(CreateDefaultParam(def));
+                }
             }
 
-            // RandomWeighted는 자식 수에 따라 weight_i를 맞춰준다(없으면 1)
-            if (node.typeId == BtTypeIds.Composite.RandomWeighted && node.children != null)
+            // RandomWeighted는 자식 수에 따라 weight_i를 맞춰준다(없으면 1).
+            // 표시/저장되는 슬롯 수와 런타임이 읽는 슬롯 수가 일치하도록, 남는 weight는 정리한다.
+            if (node.typeId == BtTypeIds.Composite.RandomWeighted)
             {
-                for (int i = 0; i < node.children.Count; i++)
+                int childCount = node.children?.Count ?? 0;
+
+                for (int i = 0; i < childCount; i++)
                 {
-                    string k = $"weight_{i}";
-                    if (TryFindParam(node.parameters, k, out _)) continue;
-                    node.parameters.Add(new BtParamValue { key = k, valueType = BtValueType.Float, floatValue = 1f });
+                    string key = $"weight_{i}";
+                    if (TryFindParam(node.parameters, key, out _))
+                        continue;
+
+                    node.parameters.Add(new BtParamValue
+                    {
+                        key = key,
+                        valueType = BtValueType.Float,
+                        floatValue = 1f
+                    });
+                }
+
+                for (int i = node.parameters.Count - 1; i >= 0; i--)
+                {
+                    string key = node.parameters[i].key;
+                    if (!TryParseWeightIndex(key, out int weightIndex))
+                        continue;
+
+                    if (weightIndex >= childCount)
+                        node.parameters.RemoveAt(i);
                 }
             }
         }
@@ -45,9 +66,9 @@ namespace GGemCo2DAiBtEditor
         public static VisualElement CreateParamEditor(EditorWindow owner, MonsterBehaviorTreeAsset asset, BtNodeRecord node, Action onChanged)
         {
             var root = new VisualElement();
+            var defs = GetDisplayParamDefs(node);
 
-            var defs = BtNodeTypeCatalog.GetParamDefs(node.typeId);
-            if (defs == null || defs.Count == 0)
+            if (defs.Count == 0)
             {
                 root.Add(new Label("No defined parameters."));
                 return root;
@@ -57,7 +78,7 @@ namespace GGemCo2DAiBtEditor
             {
                 var row = new VisualElement { style = { flexDirection = FlexDirection.Row, marginBottom = 4 } };
 
-                row.Add(new Label(def.Key)
+                row.Add(new Label(GetDisplayLabel(node, asset, def))
                 {
                     style =
                     {
@@ -75,6 +96,54 @@ namespace GGemCo2DAiBtEditor
             }
 
             return root;
+        }
+
+
+        private static List<BtParamDef> GetDisplayParamDefs(BtNodeRecord node)
+        {
+            var result = new List<BtParamDef>();
+            var defs = BtNodeTypeCatalog.GetParamDefs(node.typeId);
+            if (defs != null)
+                result.AddRange(defs);
+
+            if (node.typeId == BtTypeIds.Composite.RandomWeighted)
+            {
+                int childCount = node.children?.Count ?? 0;
+                for (int i = 0; i < childCount; i++)
+                {
+                    result.Add(new BtParamDef($"weight_{i}", BtValueType.Float, required: false, defaultValue: 1f, min: 0f));
+                }
+            }
+
+            return result;
+        }
+
+        private static string GetDisplayLabel(BtNodeRecord node, MonsterBehaviorTreeAsset asset, BtParamDef def)
+        {
+            if (!TryParseWeightIndex(def.Key, out int weightIndex))
+                return def.Key;
+
+            string childTitle = null;
+            if (node.children != null && weightIndex >= 0 && weightIndex < node.children.Count)
+            {
+                var child = asset != null ? asset.FindNode(node.children[weightIndex]) : null;
+                childTitle = child != null && !string.IsNullOrWhiteSpace(child.title)
+                    ? child.title
+                    : node.children[weightIndex];
+            }
+
+            return string.IsNullOrWhiteSpace(childTitle)
+                ? def.Key
+                : $"{def.Key} ({childTitle})";
+        }
+
+        private static bool TryParseWeightIndex(string key, out int index)
+        {
+            index = -1;
+            if (string.IsNullOrEmpty(key) || !key.StartsWith("weight_", StringComparison.Ordinal))
+                return false;
+
+            return int.TryParse(key.Substring("weight_".Length), out index);
         }
 
         private static VisualElement CreateValueField(EditorWindow owner, MonsterBehaviorTreeAsset asset, BtNodeRecord node, BtParamDef def, Action onChanged)
