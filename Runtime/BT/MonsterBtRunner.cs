@@ -671,7 +671,25 @@ namespace GGemCo2DAiBt
                     ok = result;
                     break;
                 }
+                case BtTypeIds.Condition.HasAffect:
+                {
+                    int affectUid = ctx.GetIntParam(node, "affectUid", 0);
+                    ok = affectUid > 0 && AffectApi.Has(gameObject, affectUid);
 
+                    AddMetric(node.id, "AffectUid", affectUid);
+                    AddMetric(node.id, "HasAffect", ok ? 1f : 0f);
+                    AddMetric(node.id, "Result", ok ? 1f : 0f);
+
+                    AddEvent(
+                        node.id,
+                        BtDebugEventKind.Condition,
+                        "HasAffect",
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok ? BtDebugReason.None : BtDebugReason.None,
+                        $"affectUid={affectUid}, has={ok}");
+
+                    break;
+                }
                 default:
                     ok = false;
                     AddMetric(node.id, "UnknownCondition", 0f, node.typeId);

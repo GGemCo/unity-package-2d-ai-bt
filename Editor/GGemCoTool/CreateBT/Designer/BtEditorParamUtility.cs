@@ -177,7 +177,12 @@ namespace GGemCo2DAiBtEditor
                     // - Action.UseSkill
                     if (IsSkillUidParam(node.typeId, def.Key))
                         return CreateSkillUidDropdownField(owner, asset, node, def, v, onChanged);
-
+                    
+                    if (IsAffectUidParam(node.typeId, def.Key))
+                    {
+                        return CreateAffectUidDropdownField(owner, asset, node, def, v, onChanged);
+                    }
+                    
                     var field = new IntegerField { value = v };
                     field.RegisterValueChangedCallback(evt =>
                     {
@@ -248,6 +253,7 @@ namespace GGemCo2DAiBtEditor
             }
         }
 
+        #region 스킬 선택 박스
         private static bool IsSkillUidParam(string nodeTypeId, string paramKey)
         {
             if (!string.Equals(paramKey, "skillUid", StringComparison.Ordinal))
@@ -310,7 +316,68 @@ namespace GGemCo2DAiBtEditor
 
             return button;
         }
+        #endregion
+        
+        private static bool IsAffectUidParam(string nodeTypeId, string paramKey)
+        {
+            if (!string.Equals(paramKey, "affectUid", StringComparison.Ordinal))
+                return false;
 
+            return string.Equals(nodeTypeId, "Condition.HasAffect", StringComparison.Ordinal);
+        }
+
+        private static VisualElement CreateAffectUidDropdownField(
+            EditorWindow owner,
+            MonsterBehaviorTreeAsset asset,
+            BtNodeRecord node,
+            BtParamDef def,
+            int currentUid,
+            Action onChanged)
+        {
+            // owner는 MonsterBtDesignerWindow 인스턴스를 전달하는 것을 권장한다.
+            // (fallback: focusedWindow)
+            owner ??= EditorWindow.focusedWindow;
+
+            var options = BtAffectDropdownProvider.GetOptions();
+            int selectedIndex = BtAffectDropdownProvider.FindIndexByUid(options, currentUid);
+
+            var button = new Button();
+            button.style.height = 20;
+            button.style.unityTextAlign = TextAnchor.MiddleLeft;
+            button.text = BtAffectDropdownProvider.FormatSelected(options, selectedIndex, currentUid);
+
+            button.clicked += () =>
+            {
+                if (owner == null)
+                {
+                    Debug.LogWarning("[BT] SearchableDropdown requires an owner EditorWindow.");
+                    return;
+                }
+
+                // 매번 최신 테이블을 반영할 수 있도록 클릭 시에도 옵션을 재조회한다.
+                var latestOptions = BtAffectDropdownProvider.GetOptions(forceReload: false);
+                int latestSelectedIndex = BtAffectDropdownProvider.FindIndexByUid(latestOptions, GetInt(node.parameters, def.Key, currentUid));
+
+                Rect rect = SearchableDropdownUtility.GetScreenRect(owner, button);
+                SearchableDropdownUtility.ShowUiToolkit(
+                    owner: owner,
+                    activatorRectScreen: rect,
+                    options: latestOptions,
+                    selectedIndex: latestSelectedIndex,
+                    onSelected: (idx, opt) =>
+                    {
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
+                        SetInt(node.parameters, def.Key, opt.Data);
+                        BtUndoUtility.SetDirty(asset);
+                        button.text = BtAffectDropdownProvider.FormatSelected(latestOptions, idx, opt.Data);
+                        onChanged?.Invoke();
+                    },
+                    defaultSearchMode: SearchableDropdownUtility.SearchMode.Both);
+            };
+
+            return button;
+        }
+        #region 헬퍼
         private static void EnsureParamExists(BtNodeRecord node, BtParamDef def)
         {
             node.parameters ??= new List<BtParamValue>();
@@ -471,6 +538,7 @@ namespace GGemCo2DAiBtEditor
 
             return false;
         }
+        #endregion
     }
 }
 #endif

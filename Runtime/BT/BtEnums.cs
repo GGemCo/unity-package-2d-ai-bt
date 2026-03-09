@@ -77,6 +77,7 @@ namespace GGemCo2DAiBt
 
             // Skill UID별 사용 횟수 비교
             public const string SkillUseCountCompare = "Condition.SkillUseCountCompare";
+            public const string HasAffect = "Condition.HasAffect";
         }
 
         public static class Action

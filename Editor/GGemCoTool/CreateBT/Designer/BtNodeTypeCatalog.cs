@@ -60,7 +60,8 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.TargetWithinDistance", DisplayName = "Target Within Distance" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.SkillUseCountCompare", DisplayName = "Skill Use Count Compare" },
-
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HasAffect", DisplayName = "Has Affect" },
+            
             // Action
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.WaitOneTick", DisplayName = "Wait One Tick" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.Wait", DisplayName = "Wait" },
@@ -109,7 +110,11 @@ namespace GGemCo2DAiBtEditor
                     new BtParamDef("value", BtValueType.Int, required: true, defaultValue: 1),
                     new BtParamDef("resetOnSuccess", BtValueType.Bool, required: false, defaultValue: false),
                 },
-
+                ["Condition.HasAffect"] = new List<BtParamDef>
+                {
+                    new BtParamDef("affectUid", BtValueType.Int, required: true, defaultValue: 0),
+                },
+                
                 // Action
                 ["Action.Wait"] = new List<BtParamDef>
                 {
