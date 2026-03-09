@@ -159,9 +159,9 @@ namespace GGemCo2DAiBtEditor
                     var field = new FloatField { value = f };
                     field.RegisterValueChangedCallback(evt =>
                     {
-                        Undo.RecordObject(asset, "Edit BT Param");
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                         SetFloat(node.parameters, def.Key, evt.newValue);
-                        EditorUtility.SetDirty(asset);
+                        BtUndoUtility.SetDirty(asset);
                         onChanged?.Invoke();
                     });
                     return field;
@@ -181,9 +181,9 @@ namespace GGemCo2DAiBtEditor
                     var field = new IntegerField { value = v };
                     field.RegisterValueChangedCallback(evt =>
                     {
-                        Undo.RecordObject(asset, "Edit BT Param");
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                         SetInt(node.parameters, def.Key, evt.newValue);
-                        EditorUtility.SetDirty(asset);
+                        BtUndoUtility.SetDirty(asset);
                         onChanged?.Invoke();
                     });
                     return field;
@@ -195,9 +195,9 @@ namespace GGemCo2DAiBtEditor
                     var field = new Toggle { value = v };
                     field.RegisterValueChangedCallback(evt =>
                     {
-                        Undo.RecordObject(asset, "Edit BT Param");
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                         SetBool(node.parameters, def.Key, evt.newValue);
-                        EditorUtility.SetDirty(asset);
+                        BtUndoUtility.SetDirty(asset);
                         onChanged?.Invoke();
                     });
                     return field;
@@ -212,20 +212,20 @@ namespace GGemCo2DAiBtEditor
                         var field = new PopupField<string>(options.ToList(), Mathf.Max(0, Array.IndexOf(options, v)));
                         field.RegisterValueChangedCallback(evt =>
                         {
-                            Undo.RecordObject(asset, "Edit BT Param");
+                            BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                             SetEnumString(node.parameters, def.Key, evt.newValue);
-                            EditorUtility.SetDirty(asset);
+                            BtUndoUtility.SetDirty(asset);
                             onChanged?.Invoke();
                         });
                         return field;
                     }
 
-                    var textField = new TextField { value = v };
+                    var textField = new TextField { value = v, isDelayed = true };
                     textField.RegisterValueChangedCallback(evt =>
                     {
-                        Undo.RecordObject(asset, "Edit BT Param");
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                         SetEnumString(node.parameters, def.Key, evt.newValue);
-                        EditorUtility.SetDirty(asset);
+                        BtUndoUtility.SetDirty(asset);
                         onChanged?.Invoke();
                     });
                     return textField;
@@ -235,12 +235,12 @@ namespace GGemCo2DAiBtEditor
                 default:
                 {
                     var v = GetString(node.parameters, def.Key, def.DefaultValue?.ToString() ?? "");
-                    var field = new TextField { value = v };
+                    var field = new TextField { value = v, isDelayed = true };
                     field.RegisterValueChangedCallback(evt =>
                     {
-                        Undo.RecordObject(asset, "Edit BT Param");
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                         SetString(node.parameters, def.Key, evt.newValue);
-                        EditorUtility.SetDirty(asset);
+                        BtUndoUtility.SetDirty(asset);
                         onChanged?.Invoke();
                     });
                     return field;
@@ -299,9 +299,9 @@ namespace GGemCo2DAiBtEditor
                     selectedIndex: latestSelectedIndex,
                     onSelected: (idx, opt) =>
                     {
-                        Undo.RecordObject(asset, "Edit BT Param");
+                        BtUndoUtility.RecordDelta(asset, "Edit BT Param");
                         SetInt(node.parameters, def.Key, opt.Data);
-                        EditorUtility.SetDirty(asset);
+                        BtUndoUtility.SetDirty(asset);
                         button.text = BtSkillDropdownProvider.FormatSelected(latestOptions, idx, opt.Data);
                         onChanged?.Invoke();
                     },

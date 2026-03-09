@@ -157,6 +157,19 @@ namespace GGemCo2DAiBtEditor
                     if (DuplicateSelection())
                         evt.StopImmediatePropagation();
                     break;
+
+                case KeyCode.Z:
+                    if (evt.shiftKey)
+                        Undo.PerformRedo();
+                    else
+                        Undo.PerformUndo();
+                    evt.StopImmediatePropagation();
+                    break;
+
+                case KeyCode.Y:
+                    Undo.PerformRedo();
+                    evt.StopImmediatePropagation();
+                    break;
             }
         }
 
@@ -327,7 +340,7 @@ namespace GGemCo2DAiBtEditor
         {
             if (_asset == null) return;
 
-            Undo.RecordObject(_asset, "Create BT Node");
+            BtUndoUtility.RecordComplete(_asset, "Create BT Node");
 
             var n = new BtNodeRecord
             {
@@ -347,10 +360,10 @@ namespace GGemCo2DAiBtEditor
             if (string.IsNullOrEmpty(_asset.rootNodeId))
                 _asset.rootNodeId = n.id;
 
-            EditorUtility.SetDirty(_asset);
+            BtUndoUtility.SetDirty(_asset);
 
             PopulateFromAsset();
-            _window.MarkDirty("Node created.");
+            _window.NotifyTreeChanged("Node created.", repopulateGraph: false, refreshInspector: true, selectNodeId: n.id);
 
             if (_views.TryGetValue(n.id, out var view))
             {
@@ -367,7 +380,7 @@ namespace GGemCo2DAiBtEditor
             // Move node → save graphPosition/size
             if (change.movedElements != null)
             {
-                Undo.RecordObject(_asset, "Move BT Node");
+                BtUndoUtility.RecordDelta(_asset, "Move BT Node");
 
                 foreach (var nv in change.movedElements.OfType<BtNodeView>())
                 {
@@ -378,14 +391,14 @@ namespace GGemCo2DAiBtEditor
                     node.graphSize = rect.size;
                 }
 
-                EditorUtility.SetDirty(_asset);
+                BtUndoUtility.SetDirty(_asset);
                 _window.MarkDirty("Node moved.");
             }
 
             // Create edges → update children
             if (change.edgesToCreate != null && change.edgesToCreate.Count > 0)
             {
-                Undo.RecordObject(_asset, "Create BT Edge");
+                BtUndoUtility.RecordComplete(_asset, "Create BT Edge");
 
                 foreach (var e in change.edgesToCreate)
                 {
@@ -397,13 +410,14 @@ namespace GGemCo2DAiBtEditor
                     }
                 }
 
-                EditorUtility.SetDirty(_asset);
+                BtUndoUtility.SetDirty(_asset);
+                _window.NotifyTreeChanged("Edge created.", repopulateGraph: false, refreshInspector: true);
             }
 
             // Remove elements → update children and/or delete nodes
             if (change.elementsToRemove != null)
             {
-                Undo.RecordObject(_asset, "Remove BT Elements");
+                BtUndoUtility.RecordComplete(_asset, "Remove BT Elements");
 
                 foreach (var el in change.elementsToRemove)
                 {
@@ -411,8 +425,8 @@ namespace GGemCo2DAiBtEditor
                     else if (el is BtNodeView nv) RemoveNodeFromAsset(nv.NodeId);
                 }
 
-                EditorUtility.SetDirty(_asset);
-                _window.MarkDirty("Elements removed.");
+                BtUndoUtility.SetDirty(_asset);
+                _window.NotifyTreeChanged("Elements removed.", repopulateGraph: false, refreshInspector: true);
             }
 
             return change;
@@ -451,6 +465,9 @@ namespace GGemCo2DAiBtEditor
             if (!p.children.Contains(child.NodeId))
                 p.children.Add(child.NodeId);
 
+            if (p.typeId == BtTypeIds.Composite.RandomWeighted)
+                BtEditorParamUtility.EnsureParams(p, _asset);
+
             reason = "Edge created.";
             return true;
         }
@@ -464,6 +481,9 @@ namespace GGemCo2DAiBtEditor
             if (p == null) return;
 
             p.children.RemoveAll(x => x == child.NodeId);
+
+            if (p.typeId == BtTypeIds.Composite.RandomWeighted)
+                BtEditorParamUtility.EnsureParams(p, _asset);
         }
 
         public void ApplyDebug(MonsterBtRunner runner)
@@ -729,7 +749,7 @@ namespace GGemCo2DAiBtEditor
                 finalAnchor += Vector2.one * (DefaultPasteOffsetStep * _pasteSerial);
             }
 
-            Undo.RecordObject(_asset, copiedByDuplicate ? "Duplicate BT Nodes" : "Paste BT Nodes");
+            BtUndoUtility.RecordComplete(_asset, copiedByDuplicate ? "Duplicate BT Nodes" : "Paste BT Nodes");
 
             var oldToNewId = new Dictionary<string, string>(StringComparer.Ordinal);
             var addedNodeIds = new List<string>(copiedNodes.Count);
@@ -775,7 +795,7 @@ namespace GGemCo2DAiBtEditor
                 addedNodeIds.Add(newNode.id);
             }
 
-            EditorUtility.SetDirty(_asset);
+            BtUndoUtility.SetDirty(_asset);
             PopulateFromAsset();
             SelectNodes(addedNodeIds, frame: true);
 
@@ -783,7 +803,7 @@ namespace GGemCo2DAiBtEditor
             if (incrementSerial)
                 _pasteSerial++;
 
-            _window.MarkDirty($"Pasted {addedNodeIds.Count} node(s).");
+            _window.NotifyTreeChanged($"Pasted {addedNodeIds.Count} node(s).", repopulateGraph: false, refreshInspector: true, selectNodeId: addedNodeIds.Count == 1 ? addedNodeIds[0] : null);
             return true;
         }
 

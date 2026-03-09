@@ -35,6 +35,7 @@ namespace GGemCo2DAiBtEditor
         // Children reorder
         private ReorderableList _childrenReorder;
         private IMGUIContainer _childrenReorderContainer;
+        private bool _isUndoRedoSubscribed;
 
         [MenuItem(ConfigEditorAiBt.NameToolCreateBt, false, (int)ConfigEditorAiBt.ToolOrdering.CreateBt)]
         public static void OpenMenu() => Open(null);
@@ -46,6 +47,11 @@ namespace GGemCo2DAiBtEditor
             wnd.minSize = new Vector2(1080, 640);
             wnd.SetAsset(asset);
             wnd.Show();
+        }
+
+        private void OnEnable()
+        {
+            RegisterUndoCallbacks();
         }
 
         private void SetAsset(MonsterBehaviorTreeAsset asset)
@@ -279,7 +285,54 @@ namespace GGemCo2DAiBtEditor
 
         private void OnDisable()
         {
+            UnregisterUndoCallbacks();
             DetachRunnerEvents();
+        }
+
+        private void RegisterUndoCallbacks()
+        {
+            if (_isUndoRedoSubscribed)
+                return;
+
+            Undo.undoRedoPerformed += HandleUndoRedoPerformed;
+            _isUndoRedoSubscribed = true;
+        }
+
+        private void UnregisterUndoCallbacks()
+        {
+            if (!_isUndoRedoSubscribed)
+                return;
+
+            Undo.undoRedoPerformed -= HandleUndoRedoPerformed;
+            _isUndoRedoSubscribed = false;
+        }
+
+        private void HandleUndoRedoPerformed()
+        {
+            if (_asset == null)
+            {
+                RefreshInspector(null);
+                UpdateStatus("Undo / Redo applied.");
+                Repaint();
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(_selectedNodeId) && _asset.FindNode(_selectedNodeId) == null)
+                _selectedNodeId = null;
+
+            if (_graphView != null)
+            {
+                _graphView.SetAsset(_asset);
+                _graphView.PopulateFromAsset();
+                _graphView.ApplyDebug(_runner);
+
+                if (!string.IsNullOrEmpty(_selectedNodeId))
+                    _graphView.SelectNode(_selectedNodeId, frame: false);
+            }
+
+            RefreshInspector(_selectedNodeId);
+            UpdateStatus("Undo / Redo applied.");
+            Repaint();
         }
 
         private void AttachRunnerEvents()
@@ -302,8 +355,45 @@ namespace GGemCo2DAiBtEditor
             RefreshInspector(_selectedNodeId);
         }
 
+        internal MonsterBehaviorTreeAsset Asset => _asset;
+
+        internal void NotifyTreeChanged(string message, bool repopulateGraph = true, bool refreshInspector = true, string selectNodeId = null, bool applyDebug = true)
+        {
+            if (_asset == null)
+                return;
+
+            BtUndoUtility.SetDirty(_asset);
+
+            if (_graphView != null && repopulateGraph)
+            {
+                _graphView.SetAsset(_asset);
+                _graphView.PopulateFromAsset();
+            }
+
+            if (_graphView != null && applyDebug)
+                _graphView.ApplyDebug(_runner);
+
+            if (!string.IsNullOrEmpty(selectNodeId))
+            {
+                _selectedNodeId = selectNodeId;
+                _graphView?.SelectNode(selectNodeId, frame: false);
+            }
+            else if (refreshInspector && !string.IsNullOrEmpty(_selectedNodeId) && _asset.FindNode(_selectedNodeId) == null)
+            {
+                _selectedNodeId = null;
+            }
+
+            if (refreshInspector)
+                RefreshInspector(_selectedNodeId);
+
+            UpdateStatus(message);
+        }
+
         private void RefreshInspector(string selectedNodeId)
         {
+            if (_inspectorRoot == null)
+                return;
+
             _inspectorRoot.Clear();
 
             if (_asset == null)
@@ -317,11 +407,9 @@ namespace GGemCo2DAiBtEditor
                 _inspectorRoot.Add(new Label("노드를 선택하면 상세 설정이 표시됩니다."));
                 _inspectorRoot.Add(new Button(() =>
                 {
+                    BtUndoUtility.RecordComplete(_asset, "Create BT Preset");
                     MonsterBtPresetBuilder.CreateMeleeBasicPreset(_asset);
-                    EditorUtility.SetDirty(_asset);
-                    _graphView.PopulateFromAsset();
-                    _graphView.ApplyDebug(_runner);
-                    UpdateStatus("Preset created.");
+                    NotifyTreeChanged("Preset created.", selectNodeId: _asset.rootNodeId);
                 }) { text = "Create Example BT" });
 
                 _inspectorRoot.Add(new VisualElement { style = { height = 12 } });
@@ -350,12 +438,9 @@ namespace GGemCo2DAiBtEditor
             {
                 if (evt.newValue)
                 {
-                    Undo.RecordObject(_asset, "Set BT Root");
+                    BtUndoUtility.RecordComplete(_asset, "Set BT Root");
                     _asset.rootNodeId = node.id;
-                    EditorUtility.SetDirty(_asset);
-                    _graphView.PopulateFromAsset();
-                    _graphView.SelectNode(node.id);
-                    UpdateStatus("Root updated.");
+                    NotifyTreeChanged("Root updated.", selectNodeId: node.id);
                 }
                 else
                 {
@@ -367,27 +452,29 @@ namespace GGemCo2DAiBtEditor
             _inspectorRoot.Add(rootRow);
 
             // Title field
-            var titleField = new TextField("Title") { value = node.title };
+            var titleField = new TextField("Title") { value = node.title, isDelayed = true };
             titleField.RegisterValueChangedCallback(evt =>
             {
-                Undo.RecordObject(_asset, "Edit BT Title");
+                BtUndoUtility.RecordDelta(_asset, "Edit BT Title");
                 node.title = evt.newValue;
-                EditorUtility.SetDirty(_asset);
+                BtUndoUtility.SetDirty(_asset);
                 // Title 변경은 그래프 구조 변경이 아니므로 전체 리빌드를 피한다.
                 _graphView.RefreshNodeView(node.id);
                 _graphView.SelectNode(node.id);
+                RefreshInspector(node.id);
                 UpdateStatus("Title updated.");
             });
             _inspectorRoot.Add(titleField);
 
             // Comment field
-            var commentField = new TextField("Comment") { value = node.comment, multiline = true };
+            var commentField = new TextField("Comment") { value = node.comment, multiline = true, isDelayed = true };
             commentField.style.minHeight = 60;
             commentField.RegisterValueChangedCallback(evt =>
             {
-                Undo.RecordObject(_asset, "Edit BT Comment");
+                BtUndoUtility.RecordDelta(_asset, "Edit BT Comment");
                 node.comment = evt.newValue;
-                EditorUtility.SetDirty(_asset);
+                BtUndoUtility.SetDirty(_asset);
+                RefreshInspector(node.id);
                 UpdateStatus("Comment updated.");
             });
             _inspectorRoot.Add(commentField);
@@ -459,30 +546,22 @@ namespace GGemCo2DAiBtEditor
                 var removeRect = new Rect(rect.x + rect.width - 34, rect.y, 32, rect.height);
                 if (GUI.Button(removeRect, "X"))
                 {
-                    Undo.RecordObject(_asset, "Remove BT Child");
+                    BtUndoUtility.RecordComplete(_asset, "Remove BT Child");
                     node.children.RemoveAt(index);
-                    
+
                     if (node.typeId == BtTypeIds.Composite.RandomWeighted)
                     {
                         BtEditorParamUtility.EnsureParams(node, _asset);
                     }
-                    
-                    EditorUtility.SetDirty(_asset);
-                    _graphView?.PopulateFromAsset();
-                    _graphView?.ApplyDebug(_runner);
-                    _graphView?.SelectNode(node.id);
-                    UpdateStatus("Child removed.");
+
+                    NotifyTreeChanged("Child removed.", selectNodeId: node.id);
                 }
             };
 
             _childrenReorder.onReorderCallback = _ =>
             {
-                Undo.RecordObject(_asset, "Reorder BT Children");
-                EditorUtility.SetDirty(_asset);
-                _graphView?.PopulateFromAsset();
-                _graphView?.ApplyDebug(_runner);
-                _graphView?.SelectNode(node.id);
-                UpdateStatus("Children reordered.");
+                BtUndoUtility.RecordComplete(_asset, "Reorder BT Children");
+                NotifyTreeChanged("Children reordered.", selectNodeId: node.id);
             };
 
             // Decorator는 children 1개 제한 - 정렬 대신 현재 연결만 보여준다.
@@ -503,11 +582,9 @@ namespace GGemCo2DAiBtEditor
             {
                 var syncBtn = new Button(() =>
                 {
-                    Undo.RecordObject(_asset, "Sync RandomWeighted Weights");
+                    BtUndoUtility.RecordComplete(_asset, "Sync RandomWeighted Weights");
                     BtEditorParamUtility.EnsureParams(node, _asset);
-                    EditorUtility.SetDirty(_asset);
-                    UpdateStatus("Weights synced.");
-                    RefreshInspector(node.id);
+                    NotifyTreeChanged("Weights synced.", selectNodeId: node.id);
                 }) { text = "Sync Weights (weight_0..n)" };
                 root.Add(syncBtn);
             }
@@ -572,7 +649,7 @@ namespace GGemCo2DAiBtEditor
         {
             if (_asset == null) return;
 
-            Undo.RecordObject(_asset, "Delete BT Node");
+            BtUndoUtility.RecordComplete(_asset, "Delete BT Node");
 
             _asset.nodes.RemoveAll(n => n != null && n.id == nodeId);
 
@@ -582,12 +659,8 @@ namespace GGemCo2DAiBtEditor
             if (_asset.rootNodeId == nodeId)
                 _asset.rootNodeId = _asset.nodes.Count > 0 ? _asset.nodes[0].id : string.Empty;
 
-            EditorUtility.SetDirty(_asset);
-
             _selectedNodeId = null;
-            _graphView.PopulateFromAsset();
-            RefreshInspector(null);
-            UpdateStatus("Node deleted.");
+            NotifyTreeChanged("Node deleted.", selectNodeId: _asset.rootNodeId);
         }
 
         private void UpdateStatus(string message = null)
