@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace GGemCo2DAiBt
 {
@@ -38,6 +39,109 @@ namespace GGemCo2DAiBt
             Key = key;
             Value = value;
             Text = text;
+        }
+    }
+
+    /// <summary>
+    /// 디버그 상세 레코드 분류.
+    /// </summary>
+    public enum BtDebugEventKind
+    {
+        Composite = 0,
+        Decorator = 1,
+        Condition = 2,
+        Action = 3,
+        Blackboard = 4,
+        System = 5,
+    }
+
+    /// <summary>
+    /// 디버그 실패/판단 이유 코드.
+    /// </summary>
+    public enum BtDebugReason
+    {
+        None = 0,
+        NoTarget,
+        OutOfRange,
+        HpNotBelowThreshold,
+        SkillBusy,
+        SkillUidInvalid,
+        CooldownNotReady,
+        TimeoutExceeded,
+        BlackboardMissing,
+        InvalidParameter,
+        ChildMissing,
+        RandomPickFailed,
+        UnknownType,
+    }
+
+    /// <summary>
+    /// 조건/액션/데코레이터/컴포지트의 실행 상세 한 줄.
+    /// </summary>
+    [Serializable]
+    public struct BtDebugEvent
+    {
+        public string NodeId;
+        public BtDebugEventKind Kind;
+        public string Title;
+        public BtStatus Status;
+        public BtDebugReason Reason;
+        public string Summary;
+
+        public BtDebugEvent(string nodeId, BtDebugEventKind kind, string title, BtStatus status, BtDebugReason reason, string summary)
+        {
+            NodeId = nodeId;
+            Kind = kind;
+            Title = title;
+            Status = status;
+            Reason = reason;
+            Summary = summary;
+        }
+    }
+
+    /// <summary>
+    /// 한 틱의 디버그 스냅샷.
+    /// </summary>
+    [Serializable]
+    public sealed class BtDebugFrame
+    {
+        public int TickIndex;
+        public float Time;
+        public string RootNodeId;
+        public BtStatus RootStatus;
+        public string ActiveNodeId;
+
+        public readonly List<string> ActivePath = new();
+        public readonly List<BtDebugNodeResult> Visits = new();
+        public readonly List<BtDebugMetric> Metrics = new();
+        public readonly List<BtDebugEvent> Events = new();
+
+        public void Reset(int tickIndex, float time, string rootNodeId)
+        {
+            TickIndex = tickIndex;
+            Time = time;
+            RootNodeId = rootNodeId;
+            RootStatus = BtStatus.Failure;
+            ActiveNodeId = null;
+            ActivePath.Clear();
+            Visits.Clear();
+            Metrics.Clear();
+            Events.Clear();
+        }
+
+        public BtDebugFrame Clone()
+        {
+            var clone = new BtDebugFrame();
+            clone.TickIndex = TickIndex;
+            clone.Time = Time;
+            clone.RootNodeId = RootNodeId;
+            clone.RootStatus = RootStatus;
+            clone.ActiveNodeId = ActiveNodeId;
+            clone.ActivePath.AddRange(ActivePath);
+            clone.Visits.AddRange(Visits);
+            clone.Metrics.AddRange(Metrics);
+            clone.Events.AddRange(Events);
+            return clone;
         }
     }
 }

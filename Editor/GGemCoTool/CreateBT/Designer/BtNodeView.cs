@@ -19,6 +19,7 @@ namespace GGemCo2DAiBt.Editor
         public Port OutPort { get; }
 
         private readonly Label _rootBadge;
+        private readonly Label _debugBadge;
 
         public BtNodeView(BtNodeRecord record)
         {
@@ -63,6 +64,19 @@ namespace GGemCo2DAiBt.Editor
             };
             titleContainer.Add(_rootBadge);
 
+            _debugBadge = new Label()
+            {
+                style =
+                {
+                    unityTextAlign = TextAnchor.MiddleRight,
+                    fontSize = 10,
+                    marginLeft = 6,
+                    opacity = 0.85f,
+                    display = DisplayStyle.None,
+                }
+            };
+            titleContainer.Add(_debugBadge);
+
             RefreshExpandedState();
             RefreshPorts();
         }
@@ -85,6 +99,15 @@ namespace GGemCo2DAiBt.Editor
         public void MarkAsRoot(bool isRoot)
         {
             _rootBadge.style.display = isRoot ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        public void SetDebugInfo(string badgeText, string tooltipText)
+        {
+            tooltip = tooltipText ?? string.Empty;
+
+            bool hasBadge = !string.IsNullOrEmpty(badgeText);
+            _debugBadge.text = badgeText ?? string.Empty;
+            _debugBadge.style.display = hasBadge ? DisplayStyle.Flex : DisplayStyle.None;
         }
     }
 }

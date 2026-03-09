@@ -494,6 +494,7 @@ namespace GGemCo2DAiBtEditor
                 v.style.borderLeftWidth = 0;
                 v.style.borderRightWidth = 0;
                 v.titleContainer.style.backgroundColor = StyleKeyword.Null;
+                v.SetDebugInfo(null, null);
             }
 
             if (runner == null) return;
@@ -520,6 +521,30 @@ namespace GGemCo2DAiBtEditor
                 }
             }
 
+            var frame = runner.DebugLastFrame;
+            if (frame != null)
+            {
+                foreach (var ev in frame.Events)
+                {
+                    if (string.IsNullOrEmpty(ev.NodeId))
+                        continue;
+                    if (!_views.TryGetValue(ev.NodeId, out var view))
+                        continue;
+
+                    string badge = ev.Status.ToString();
+                    if (ev.Reason != BtDebugReason.None)
+                        badge += $"/{ev.Reason}";
+
+                    string tip = $"[{ev.Kind}] {ev.Title}\nStatus: {ev.Status}";
+                    if (ev.Reason != BtDebugReason.None)
+                        tip += $"\nReason: {ev.Reason}";
+                    if (!string.IsNullOrEmpty(ev.Summary))
+                        tip += $"\n{ev.Summary}";
+
+                    view.SetDebugInfo(badge, tip);
+                }
+            }
+
             // Active path highlight
             var path = runner.DebugActivePath;
             if (path != null)
@@ -530,6 +555,8 @@ namespace GGemCo2DAiBtEditor
                     if (string.IsNullOrEmpty(id)) continue;
                     if (!_views.TryGetValue(id, out var v)) continue;
 
+                    v.style.borderRightWidth = 4;
+                    v.style.borderRightColor = new Color(1f, 0.75f, 0.2f, 1f);
                     v.titleContainer.style.backgroundColor = new Color(1f, 1f, 1f, 0.12f);
                 }
             }

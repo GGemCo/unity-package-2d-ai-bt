@@ -608,40 +608,87 @@ namespace GGemCo2DAiBtEditor
                 return fold;
             }
 
-            fold.Add(new Label($"Tick: {(_runner != null ? _runner.name : "-")} | Active: {_runner.DebugActiveNodeId ?? "-"}") { style = { opacity = 0.85f } });
-
-            // Metrics
-            var metrics = _runner.DebugLastMetrics;
-            if (metrics == null || metrics.Count == 0)
+            var frame = _runner.DebugLastFrame;
+            if (frame == null)
             {
-                fold.Add(new Label("No metrics captured. (enableDebugTrace=true?)") { style = { opacity = 0.75f } });
+                fold.Add(new Label("No debug frame captured yet.") { style = { opacity = 0.75f } });
                 return fold;
             }
 
-            var listRoot = new VisualElement { style = { marginTop = 6 } };
+            fold.Add(new Label($"TickIndex: {frame.TickIndex} | Root: {frame.RootNodeId} | RootStatus: {frame.RootStatus}") { style = { opacity = 0.9f } });
+            fold.Add(new Label($"Active: {frame.ActiveNodeId ?? "-"} | Time: {frame.Time:0.###}") { style = { opacity = 0.85f } });
 
-            // Selected node filter
-            var filtered = string.IsNullOrEmpty(nodeId)
-                ? metrics
-                : metrics.Where(m => m.NodeId == nodeId).ToList();
+            if (frame.ActivePath.Count > 0)
+                fold.Add(new Label($"Active Path: {string.Join(" -> ", frame.ActivePath)}") { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
 
-            if (filtered.Count == 0)
+            var nodeEvents = string.IsNullOrEmpty(nodeId)
+                ? frame.Events
+                : frame.Events.Where(e => e.NodeId == nodeId).ToList();
+
+            var nodeMetrics = string.IsNullOrEmpty(nodeId)
+                ? frame.Metrics
+                : frame.Metrics.Where(m => m.NodeId == nodeId).ToList();
+
+            var body = new VisualElement { style = { marginTop = 6 } };
+
+            body.Add(new Label("Events") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 4 } });
+            if (nodeEvents == null || nodeEvents.Count == 0)
             {
-                listRoot.Add(new Label("No metrics for selected node.") { style = { opacity = 0.75f } });
-                fold.Add(listRoot);
-                return fold;
+                body.Add(new Label(string.IsNullOrEmpty(nodeId) ? "No events recorded." : "No events for selected node.") { style = { opacity = 0.75f } });
+            }
+            else
+            {
+                foreach (var ev in nodeEvents)
+                {
+                    string line = $"[{ev.Kind}] {ev.Title} => {ev.Status}";
+                    if (ev.Reason != BtDebugReason.None)
+                        line += $" ({ev.Reason})";
+                    if (!string.IsNullOrEmpty(ev.Summary))
+                        line += $" | {ev.Summary}";
+                    body.Add(new Label(line) { style = { opacity = 0.92f, whiteSpace = WhiteSpace.Normal } });
+                }
             }
 
-            foreach (var m in filtered)
+            body.Add(new Label("Metrics") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 8 } });
+            if (nodeMetrics == null || nodeMetrics.Count == 0)
             {
-                string line = $"{m.Key}: {m.Value:0.###}";
-                if (!string.IsNullOrEmpty(m.Text))
-                    line += $" ({m.Text})";
-
-                listRoot.Add(new Label(line) { style = { opacity = 0.9f } });
+                body.Add(new Label(string.IsNullOrEmpty(nodeId) ? "No metrics recorded." : "No metrics for selected node.") { style = { opacity = 0.75f } });
+            }
+            else
+            {
+                foreach (var m in nodeMetrics)
+                {
+                    string line = $"{m.Key}: {m.Value:0.###}";
+                    if (!string.IsNullOrEmpty(m.Text))
+                        line += $" ({m.Text})";
+                    body.Add(new Label(line) { style = { opacity = 0.9f } });
+                }
             }
 
-            fold.Add(listRoot);
+            body.Add(new Label("Recent Frames") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 8 } });
+            var history = _runner.DebugHistory;
+            if (history == null || history.Count == 0)
+            {
+                body.Add(new Label("No frame history.") { style = { opacity = 0.75f } });
+            }
+            else
+            {
+                int start = Mathf.Max(0, history.Count - 10);
+                for (int i = history.Count - 1; i >= start; i--)
+                {
+                    var hist = history[i];
+                    string line = $"#{hist.TickIndex} | Root={hist.RootStatus} | Active={hist.ActiveNodeId ?? "-"}";
+                    if (!string.IsNullOrEmpty(nodeId))
+                    {
+                        var lastNodeEvent = hist.Events.LastOrDefault(e => e.NodeId == nodeId);
+                        if (!string.IsNullOrEmpty(lastNodeEvent.NodeId))
+                            line += $" | Node={lastNodeEvent.Status}";
+                    }
+                    body.Add(new Label(line) { style = { opacity = 0.85f } });
+                }
+            }
+
+            fold.Add(body);
             return fold;
         }
 
