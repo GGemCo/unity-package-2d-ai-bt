@@ -73,6 +73,55 @@ namespace GGemCo2DAiBt
         ChildMissing,
         RandomPickFailed,
         UnknownType,
+        BreakpointMatched,
+    }
+
+    /// <summary>
+    /// 노드 브레이크포인트 설정.
+    /// </summary>
+    [Serializable]
+    public struct BtDebugBreakpoint
+    {
+        public string NodeId;
+        public bool BreakOnVisit;
+        public bool BreakOnSuccess;
+        public bool BreakOnFailure;
+        public bool BreakOnRunning;
+
+        public BtDebugBreakpoint(string nodeId, bool breakOnVisit, bool breakOnSuccess, bool breakOnFailure, bool breakOnRunning)
+        {
+            NodeId = nodeId;
+            BreakOnVisit = breakOnVisit;
+            BreakOnSuccess = breakOnSuccess;
+            BreakOnFailure = breakOnFailure;
+            BreakOnRunning = breakOnRunning;
+        }
+
+        public bool IsEmpty => !BreakOnVisit && !BreakOnSuccess && !BreakOnFailure && !BreakOnRunning;
+    }
+
+    /// <summary>
+    /// 브레이크가 걸린 마지막 지점 정보.
+    /// </summary>
+    [Serializable]
+    public struct BtDebugBreakInfo
+    {
+        public int TickIndex;
+        public string NodeId;
+        public BtStatus Status;
+        public BtDebugReason Reason;
+        public string Summary;
+
+        public BtDebugBreakInfo(int tickIndex, string nodeId, BtStatus status, BtDebugReason reason, string summary)
+        {
+            TickIndex = tickIndex;
+            NodeId = nodeId;
+            Status = status;
+            Reason = reason;
+            Summary = summary;
+        }
+
+        public bool IsValid => !string.IsNullOrEmpty(NodeId);
     }
 
     /// <summary>

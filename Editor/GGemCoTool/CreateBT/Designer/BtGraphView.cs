@@ -495,12 +495,23 @@ namespace GGemCo2DAiBtEditor
                 v.style.borderRightWidth = 0;
                 v.titleContainer.style.backgroundColor = StyleKeyword.Null;
                 v.SetDebugInfo(null, null);
+                v.SetBreakpointState(false);
             }
 
-            if (runner == null) return;
-            if (!EditorApplication.isPlaying) return;
+            if (runner == null)
+                return;
 
-            // Visited nodes (status color)
+            foreach (var kv in _views)
+            {
+                if (!runner.TryGetBreakpoint(kv.Key, out var breakpoint))
+                    continue;
+
+                kv.Value.SetBreakpointState(true, BuildBreakpointTooltip(breakpoint));
+            }
+
+            if (!EditorApplication.isPlaying)
+                return;
+
             var visited = runner.DebugLastTick;
             if (visited != null)
             {
@@ -541,11 +552,13 @@ namespace GGemCo2DAiBtEditor
                     if (!string.IsNullOrEmpty(ev.Summary))
                         tip += $"\n{ev.Summary}";
 
+                    if (runner.TryGetBreakpoint(ev.NodeId, out var breakpoint))
+                        tip += $"\n\nBreakpoint: {BuildBreakpointTooltip(breakpoint)}";
+
                     view.SetDebugInfo(badge, tip);
                 }
             }
 
-            // Active path highlight
             var path = runner.DebugActivePath;
             if (path != null)
             {
@@ -560,6 +573,16 @@ namespace GGemCo2DAiBtEditor
                     v.titleContainer.style.backgroundColor = new Color(1f, 1f, 1f, 0.12f);
                 }
             }
+        }
+
+        private static string BuildBreakpointTooltip(BtDebugBreakpoint breakpoint)
+        {
+            var parts = new List<string>();
+            if (breakpoint.BreakOnVisit) parts.Add("Visit");
+            if (breakpoint.BreakOnSuccess) parts.Add("Success");
+            if (breakpoint.BreakOnFailure) parts.Add("Failure");
+            if (breakpoint.BreakOnRunning) parts.Add("Running");
+            return parts.Count > 0 ? string.Join(", ", parts) : "None";
         }
 
         private void RemoveNodeFromAsset(string nodeId)

@@ -16,23 +16,22 @@ namespace GGemCo2DAiBt
     [DisallowMultipleComponent]
     public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable
     {
-        [Header("Behavior Tree")]
-        [SerializeField] private MonsterBehaviorTreeAsset treeAsset;
+        private MonsterBehaviorTreeAsset _treeAsset;
 
-        [Header("Tick")]
-        [SerializeField, Tooltip("0 이면 Update 프레임마다 평가한다. 0보다 크면 해당 Hz로 평가한다.")]
-        private float tickRateHz = 1f;
+        // 0 이면 Update 프레임마다 평가한다. 0보다 크면 해당 Hz로 평가한다.
+        private float _tickRateHz;
 
-        [Header("Debug")]
-        [SerializeField] private bool enableDebugLog;
-        [SerializeField, Tooltip("디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.")]
-        private bool enableDebugTrace = true;
-        [SerializeField, Min(16), Tooltip("디버그 트레이스의 최대 방문 노드 기록 개수(한 틱 기준).")]
-        private int debugTraceCapacity = 256;
-        [SerializeField, Min(16), Tooltip("디버그 메트릭의 최대 기록 개수(한 틱 기준).")]
-        private int debugMetricCapacity = 256;
-        [SerializeField, Min(4), Tooltip("에디터 디버그 타임라인용 최근 프레임 보관 개수.")]
-        private int debugHistoryCapacity = 32;
+        private bool _enableDebugLog;
+        // 디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.
+        private bool _enableDebugTrace;
+        // 디버그 트레이스의 최대 방문 노드 기록 개수(한 틱 기준).
+        private int _debugTraceCapacity;
+        // 디버그 메트릭의 최대 기록 개수(한 틱 기준).
+        private int _debugMetricCapacity;
+        // 에디터 디버그 타임라인용 최근 프레임 보관 개수.
+        private int _debugHistoryCapacity;
+        // 디버그 브레이크포인트 사용 여부.
+        private bool _enableDebugBreakpoints;
 
         public string DebugActiveNodeId { get; private set; }
         public IReadOnlyList<string> DebugActivePath => _debugActivePath;
@@ -40,6 +39,13 @@ namespace GGemCo2DAiBt
         public IReadOnlyList<BtDebugMetric> DebugLastMetrics => _debugMetrics;
         public BtDebugFrame DebugLastFrame { get; private set; }
         public IReadOnlyList<BtDebugFrame> DebugHistory => _debugHistory;
+        public bool DebugFreeze { get; private set; }
+        public bool DebugBreakpointsEnabled
+        {
+            get => _enableDebugBreakpoints;
+            set => _enableDebugBreakpoints = value;
+        }
+        public BtDebugBreakInfo DebugLastBreakInfo { get; private set; }
         public event Action<MonsterBtRunner> DebugTicked;
 
         private readonly List<string> _debugActivePath = new();
@@ -48,6 +54,7 @@ namespace GGemCo2DAiBt
         private readonly List<string> _execStack = new();
         private readonly List<BtDebugFrame> _debugHistory = new();
         private readonly BtDebugFrame _currentDebugFrame = new();
+        private readonly Dictionary<string, BtDebugBreakpoint> _breakpoints = new(StringComparer.Ordinal);
 
         private readonly Dictionary<string, BtNodeRecord> _nodeById = new(StringComparer.Ordinal);
         private BtRuntimeState _runtime;
@@ -59,14 +66,16 @@ namespace GGemCo2DAiBt
         private IMonsterBrainSuspendProvider _suspendProvider;
 
         private bool _isExecuting;
+        private bool _breakTriggeredThisTick;
+        private int _debugStepRequestCount;
         private bool _hasPendingTreeChange;
         private MonsterBehaviorTreeAsset _pendingTreeAsset;
         private BtTreeSwitchMode _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
 
         public int Priority => 100;
 
-        public bool IsActive => enabled && isActiveAndEnabled && treeAsset != null &&
-                                !string.IsNullOrEmpty(treeAsset.rootNodeId);
+        public bool IsActive => enabled && isActiveAndEnabled && _treeAsset != null &&
+                                !string.IsNullOrEmpty(_treeAsset.rootNodeId);
 
         /// <summary>
         /// 런타임 BT가 교체되었을 때 호출된다.
@@ -82,7 +91,7 @@ namespace GGemCo2DAiBt
         /// </remarks>
         public void SetTree(MonsterBehaviorTreeAsset asset, BtTreeSwitchMode mode = BtTreeSwitchMode.ResetAll)
         {
-            if (asset == treeAsset && !_hasPendingTreeChange)
+            if (asset == _treeAsset && !_hasPendingTreeChange)
                 return;
 
             if (_isExecuting)
@@ -111,12 +120,72 @@ namespace GGemCo2DAiBt
             PreserveBlackboardAndSkillUseCounts = 2,
         }
 
+        public void SetDebugFreeze(bool freeze)
+        {
+            DebugFreeze = freeze;
+        }
+
+        public void ToggleDebugFreeze()
+        {
+            DebugFreeze = !DebugFreeze;
+        }
+
+        public void RequestDebugStep(int count = 1)
+        {
+            _debugStepRequestCount += Mathf.Max(1, count);
+        }
+
+        public void ClearDebugHistory()
+        {
+            _debugHistory.Clear();
+            DebugLastFrame = null;
+            DebugLastBreakInfo = default;
+        }
+
+        public bool TryGetBreakpoint(string nodeId, out BtDebugBreakpoint breakpoint)
+        {
+            if (string.IsNullOrEmpty(nodeId))
+            {
+                breakpoint = default;
+                return false;
+            }
+
+            return _breakpoints.TryGetValue(nodeId, out breakpoint);
+        }
+
+        public bool HasBreakpoint(string nodeId)
+        {
+            return !string.IsNullOrEmpty(nodeId) && _breakpoints.ContainsKey(nodeId);
+        }
+
+        public void SetBreakpoint(BtDebugBreakpoint breakpoint)
+        {
+            if (string.IsNullOrEmpty(breakpoint.NodeId))
+                return;
+
+            if (breakpoint.IsEmpty)
+            {
+                _breakpoints.Remove(breakpoint.NodeId);
+                return;
+            }
+
+            _breakpoints[breakpoint.NodeId] = breakpoint;
+        }
+
+        public void RemoveBreakpoint(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId))
+                return;
+
+            _breakpoints.Remove(nodeId);
+        }
+
         private void ApplyTreeChange(MonsterBehaviorTreeAsset newAsset, BtTreeSwitchMode mode)
         {
-            var prev = treeAsset;
+            var prev = _treeAsset;
             var prevBlackboard = _blackboard;
 
-            treeAsset = newAsset;
+            _treeAsset = newAsset;
 
             // 기본은 전체 초기화
             RebuildCache();
@@ -142,6 +211,21 @@ namespace GGemCo2DAiBt
         private void Awake()
         {
             RebuildCache();
+
+            var aiBtSettings = AddressableLoaderSettingsAiBt.Instance.aiBtSettings;
+            if (GcLogger.IsNull(aiBtSettings, $"{nameof(GGemCoAiBtSettings)}이 설정되어 있지 않습니다."))
+            {
+                enabled = false;
+                return;
+            }
+            
+            _tickRateHz = aiBtSettings.tickRateHz;
+            _enableDebugLog = aiBtSettings.enableDebugLog;
+            _enableDebugTrace = aiBtSettings.enableDebugTrace;
+            _debugTraceCapacity = aiBtSettings.debugTraceCapacity;
+            _debugMetricCapacity = aiBtSettings.debugMetricCapacity;
+            _debugHistoryCapacity = aiBtSettings.debugHistoryCapacity;
+            _enableDebugBreakpoints = aiBtSettings.enableDebugBreakpoints;
         }
 
         private void OnEnable()
@@ -159,10 +243,10 @@ namespace GGemCo2DAiBt
         {
             _nodeById.Clear();
             _runtime = new BtRuntimeState();
-            _blackboard = new RuntimeBlackboard(treeAsset != null ? treeAsset.blackboardSchema : null);
+            _blackboard = new RuntimeBlackboard(_treeAsset != null ? _treeAsset.blackboardSchema : null);
 
-            if (treeAsset == null || treeAsset.nodes == null) return;
-            foreach (var node in treeAsset.nodes)
+            if (_treeAsset == null || _treeAsset.nodes == null) return;
+            foreach (var node in _treeAsset.nodes)
             {
                 if (node == null || string.IsNullOrEmpty(node.id)) continue;
                 _nodeById[node.id] = node;
@@ -194,44 +278,49 @@ namespace GGemCo2DAiBt
             if (_suspendProvider != null && _suspendProvider.ShouldSuspendBrain) return;
 
             float now = Time.time;
-            if (tickRateHz > 0f)
+            if (_tickRateHz > 0f)
             {
                 if (now < _nextTickTime) return;
-                _nextTickTime = now + (1f / tickRateHz);
+                _nextTickTime = now + (1f / _tickRateHz);
             }
+
+            if (!CanRunThisTick())
+                return;
 
             _runtime.tickIndex++;
             _runtime.lastTickTime = now;
 
-            if (enableDebugTrace)
+            _breakTriggeredThisTick = false;
+
+            if (_enableDebugTrace)
             {
                 _debugActivePath.Clear();
                 _debugLastTick.Clear();
                 _debugMetrics.Clear();
                 _execStack.Clear();
                 DebugActiveNodeId = null;
-                _currentDebugFrame.Reset(_runtime.tickIndex, now, treeAsset.rootNodeId);
+                _currentDebugFrame.Reset(_runtime.tickIndex, now, _treeAsset.rootNodeId);
             }
 
-            if (!_nodeById.ContainsKey(treeAsset.rootNodeId))
+            if (!_nodeById.ContainsKey(_treeAsset.rootNodeId))
             {
-                if (enableDebugLog) Debug.LogWarning($"[BT] Root node not found. root={treeAsset.rootNodeId}", this);
+                if (_enableDebugLog) Debug.LogWarning($"[BT] Root node not found. root={_treeAsset.rootNodeId}", this);
                 return;
             }
 
-            var ctx = new BtContext(this, _driver, _skillDriver, _blackboard, _runtime, enableDebugLog);
+            var ctx = new BtContext(this, _driver, _skillDriver, _blackboard, _runtime, _enableDebugLog);
             BtStatus rootStatus = BtStatus.Failure;
             try
             {
                 _isExecuting = true;
-                rootStatus = ExecuteNode(treeAsset.rootNodeId, ctx, depth: 0);
+                rootStatus = ExecuteNode(_treeAsset.rootNodeId, ctx, depth: 0);
             }
             finally
             {
                 _isExecuting = false;
             }
 
-            if (enableDebugTrace)
+            if (_enableDebugTrace)
             {
                 DebugActiveNodeId = _debugActivePath.Count > 0 ? _debugActivePath[_debugActivePath.Count - 1] : null;
                 CompleteDebugFrame(rootStatus);
@@ -244,7 +333,7 @@ namespace GGemCo2DAiBt
             if (depth > 64) return BtStatus.Failure; // 순환/과도한 깊이 방어
             if (!_nodeById.TryGetValue(nodeId, out var node) || node == null) return BtStatus.Failure;
 
-            if (enableDebugTrace)
+            if (_enableDebugTrace)
                 _execStack.Add(nodeId);
 
             BtStatus status = node.kind switch
@@ -256,9 +345,9 @@ namespace GGemCo2DAiBt
                 _ => BtStatus.Failure,
             };
 
-            if (enableDebugTrace)
+            if (_enableDebugTrace)
             {
-                if (_debugLastTick.Count < debugTraceCapacity)
+                if (_debugLastTick.Count < _debugTraceCapacity)
                     _debugLastTick.Add(new BtDebugNodeResult(nodeId, status, depth));
 
                 // 가장 깊은 Running 경로를 최초 1회만 캡처한다.
@@ -274,6 +363,23 @@ namespace GGemCo2DAiBt
         }
 
 
+        private bool CanRunThisTick()
+        {
+            if (!_enableDebugTrace)
+                return true;
+
+            if (!DebugFreeze)
+                return true;
+
+            if (_debugStepRequestCount > 0)
+            {
+                _debugStepRequestCount--;
+                return true;
+            }
+
+            return false;
+        }
+
         private void CompleteDebugFrame(BtStatus rootStatus)
         {
             _currentDebugFrame.RootStatus = rootStatus;
@@ -284,20 +390,52 @@ namespace GGemCo2DAiBt
 
             DebugLastFrame = _currentDebugFrame.Clone();
             _debugHistory.Add(DebugLastFrame);
-            while (_debugHistory.Count > debugHistoryCapacity)
+            while (_debugHistory.Count > _debugHistoryCapacity)
                 _debugHistory.RemoveAt(0);
         }
 
         private void AddEvent(string nodeId, BtDebugEventKind kind, string title, BtStatus status, BtDebugReason reason, string summary)
         {
-            if (!enableDebugTrace) return;
-            _currentDebugFrame.Events.Add(new BtDebugEvent(nodeId, kind, title, status, reason, summary));
+            if (!_enableDebugTrace) return;
+
+            var ev = new BtDebugEvent(nodeId, kind, title, status, reason, summary);
+            _currentDebugFrame.Events.Add(ev);
+            EvaluateBreakpoint(ev);
+        }
+
+        private void EvaluateBreakpoint(BtDebugEvent ev)
+        {
+            if (!_enableDebugBreakpoints)
+                return;
+            if (_breakTriggeredThisTick)
+                return;
+            if (string.IsNullOrEmpty(ev.NodeId))
+                return;
+            if (!_breakpoints.TryGetValue(ev.NodeId, out var breakpoint))
+                return;
+
+            bool shouldBreak = false;
+            if (breakpoint.BreakOnVisit)
+                shouldBreak = true;
+            if (breakpoint.BreakOnSuccess && ev.Status == BtStatus.Success)
+                shouldBreak = true;
+            if (breakpoint.BreakOnFailure && ev.Status == BtStatus.Failure)
+                shouldBreak = true;
+            if (breakpoint.BreakOnRunning && ev.Status == BtStatus.Running)
+                shouldBreak = true;
+
+            if (!shouldBreak)
+                return;
+
+            _breakTriggeredThisTick = true;
+            DebugFreeze = true;
+            DebugLastBreakInfo = new BtDebugBreakInfo(_runtime != null ? _runtime.tickIndex : 0, ev.NodeId, ev.Status, ev.Reason == BtDebugReason.None ? BtDebugReason.BreakpointMatched : ev.Reason, ev.Summary);
         }
 
         private void AddMetric(string nodeId, string key, float value, string text = null)
         {
-            if (!enableDebugTrace) return;
-            if (_debugMetrics.Count >= debugMetricCapacity) return;
+            if (!_enableDebugTrace) return;
+            if (_debugMetrics.Count >= _debugMetricCapacity) return;
             _debugMetrics.Add(new BtDebugMetric(nodeId, key, value, text));
         }
 
@@ -312,6 +450,11 @@ namespace GGemCo2DAiBt
                     for (int i = 0; i < node.children.Count; i++)
                     {
                         var st = ExecuteNode(node.children[i], ctx, depth + 1);
+                        if (_breakTriggeredThisTick)
+                        {
+                            AddEvent(node.id, BtDebugEventKind.Composite, "Selector", st, BtDebugReason.BreakpointMatched, $"break after child[{i}] => {st}");
+                            return st;
+                        }
                         if (st != BtStatus.Failure)
                         {
                             AddEvent(node.id, BtDebugEventKind.Composite, "Selector", st, BtDebugReason.None, $"child[{i}] => {st}");
@@ -325,6 +468,11 @@ namespace GGemCo2DAiBt
                     for (int i = 0; i < node.children.Count; i++)
                     {
                         var st = ExecuteNode(node.children[i], ctx, depth + 1);
+                        if (_breakTriggeredThisTick)
+                        {
+                            AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", st, BtDebugReason.BreakpointMatched, $"break after child[{i}] => {st}");
+                            return st;
+                        }
                         if (st != BtStatus.Success)
                         {
                             AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", st, BtDebugReason.None, $"child[{i}] => {st}");
@@ -345,7 +493,8 @@ namespace GGemCo2DAiBt
                     }
 
                     AddEvent(node.id, BtDebugEventKind.Composite, "RandomWeighted", BtStatus.Running, BtDebugReason.None, $"picked child[{pick}] / childCount={node.children.Count}");
-                    return ExecuteNode(node.children[pick], ctx, depth + 1);
+                    var pickedStatus = ExecuteNode(node.children[pick], ctx, depth + 1);
+                    return pickedStatus;
                 }
 
                 default:
@@ -380,6 +529,11 @@ namespace GGemCo2DAiBt
                     }
 
                     var st = ExecuteNode(childId, ctx, depth + 1);
+                    if (_breakTriggeredThisTick)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Decorator, "Cooldown", st, BtDebugReason.BreakpointMatched, $"break after child => {st}, key={key}");
+                        return st;
+                    }
                     if (st != BtStatus.Failure)
                         ctx.ConsumeCooldown(key, seconds);
                     AddEvent(node.id, BtDebugEventKind.Decorator, "Cooldown", st, BtDebugReason.None, $"key={key}, sec={seconds:0.###}");
@@ -403,6 +557,11 @@ namespace GGemCo2DAiBt
                     }
 
                     var st = ExecuteNode(childId, ctx, depth + 1);
+                    if (_breakTriggeredThisTick)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Decorator, "Timeout", st, BtDebugReason.BreakpointMatched, $"break after child => {st}, sec={seconds:0.###}");
+                        return st;
+                    }
                     if (st == BtStatus.Success || st == BtStatus.Failure)
                         ctx.ResetTimeout(node.id);
                     AddEvent(node.id, BtDebugEventKind.Decorator, "Timeout", st, BtDebugReason.None, $"sec={seconds:0.###}");

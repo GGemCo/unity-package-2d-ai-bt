@@ -16,9 +16,6 @@ namespace GGemCo2DAiBtEditor
     {
         private const string Title = "Addressable 셋팅하기";
 
-        // 각 기능별 GUI/로직을 분리한 모듈(Setting*)들
-        private SettingMonsterBt _settingMonsterBt;
-
         /// <summary>2열 레이아웃에서 각 모듈 버튼 영역의 폭입니다.</summary>
         public float buttonWidth;
 
@@ -27,6 +24,12 @@ namespace GGemCo2DAiBtEditor
 
         /// <summary>스크롤 위치(에디터 윈도우 리페인트 시 유지).</summary>
         private Vector2 _scrollPosition;
+
+        /// <summary>
+        /// ScriptableObject 셋팅 UI를 담당하는 구성 요소입니다.
+        /// </summary>
+        private SettingScriptableObjectAiBt _settingScriptableObjectAiBt;
+        private SettingMonsterBt _settingMonsterBt;
 
         /// <summary>
         /// Addressables 설정 윈도우를 엽니다.
@@ -47,6 +50,7 @@ namespace GGemCo2DAiBtEditor
             buttonHeight = 40f;
 
             // 각 Setting* 모듈은 AddressableEditor(본 윈도우)를 통해 공용 상태/테이블/유틸에 접근합니다.
+            _settingScriptableObjectAiBt = new SettingScriptableObjectAiBt(this);
             _settingMonsterBt = new SettingMonsterBt(this);
         }
 
@@ -68,6 +72,7 @@ namespace GGemCo2DAiBtEditor
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
+                    _settingScriptableObjectAiBt?.OnGUI();
                     _settingMonsterBt?.OnGUI();
                 }
  

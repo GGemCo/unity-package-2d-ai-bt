@@ -602,10 +602,103 @@ namespace GGemCo2DAiBtEditor
                 return fold;
             }
 
+            var controls = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Column,
+                    marginTop = 4,
+                    marginBottom = 6,
+                }
+            };
+
+            var row1 = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap } };
+            var freezeButton = new Button(() =>
+            {
+                _runner.SetDebugFreeze(!_runner.DebugFreeze);
+                _graphView?.ApplyDebug(_runner);
+                RefreshInspector(_selectedNodeId);
+                Repaint();
+            })
+            {
+                text = _runner.DebugFreeze ? "Resume" : "Freeze"
+            };
+            row1.Add(freezeButton);
+
+            var step1Button = new Button(() =>
+            {
+                _runner.RequestDebugStep(1);
+                _runner.SetDebugFreeze(true);
+                UpdateStatus("Requested 1 debug step.");
+                RefreshInspector(_selectedNodeId);
+                Repaint();
+            })
+            {
+                text = "Step 1"
+            };
+            row1.Add(step1Button);
+
+            var step5Button = new Button(() =>
+            {
+                _runner.RequestDebugStep(5);
+                _runner.SetDebugFreeze(true);
+                UpdateStatus("Requested 5 debug steps.");
+                RefreshInspector(_selectedNodeId);
+                Repaint();
+            })
+            {
+                text = "Step 5"
+            };
+            row1.Add(step5Button);
+
+            var clearHistoryButton = new Button(() =>
+            {
+                _runner.ClearDebugHistory();
+                _graphView?.ApplyDebug(_runner);
+                RefreshInspector(_selectedNodeId);
+                UpdateStatus("Debug history cleared.");
+                Repaint();
+            })
+            {
+                text = "Clear History"
+            };
+            row1.Add(clearHistoryButton);
+            controls.Add(row1);
+
+            var row2 = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, marginTop = 4 } };
+            var breakpointsEnabled = new Toggle("Breakpoints") { value = _runner.DebugBreakpointsEnabled };
+            breakpointsEnabled.RegisterValueChangedCallback(evt =>
+            {
+                _runner.DebugBreakpointsEnabled = evt.newValue;
+                _graphView?.ApplyDebug(_runner);
+                RefreshInspector(_selectedNodeId);
+                Repaint();
+            });
+            row2.Add(breakpointsEnabled);
+            controls.Add(row2);
+
+            fold.Add(controls);
+
+            if (!string.IsNullOrEmpty(nodeId))
+            {
+                fold.Add(BuildBreakpointEditor(nodeId));
+            }
+
             if (!EditorApplication.isPlaying)
             {
                 fold.Add(new Label("Enter Play Mode to see runtime trace/metrics.") { style = { opacity = 0.75f } });
                 return fold;
+            }
+
+            var breakInfo = _runner.DebugLastBreakInfo;
+            if (breakInfo.IsValid)
+            {
+                string breakText = $"Paused At: {breakInfo.NodeId} | Status: {breakInfo.Status} | Tick: {breakInfo.TickIndex}";
+                if (breakInfo.Reason != BtDebugReason.None)
+                    breakText += $" | Reason: {breakInfo.Reason}";
+                fold.Add(new Label(breakText) { style = { unityFontStyleAndWeight = FontStyle.Bold, whiteSpace = WhiteSpace.Normal } });
+                if (!string.IsNullOrEmpty(breakInfo.Summary))
+                    fold.Add(new Label(breakInfo.Summary) { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
             }
 
             var frame = _runner.DebugLastFrame;
@@ -616,7 +709,7 @@ namespace GGemCo2DAiBtEditor
             }
 
             fold.Add(new Label($"TickIndex: {frame.TickIndex} | Root: {frame.RootNodeId} | RootStatus: {frame.RootStatus}") { style = { opacity = 0.9f } });
-            fold.Add(new Label($"Active: {frame.ActiveNodeId ?? "-"} | Time: {frame.Time:0.###}") { style = { opacity = 0.85f } });
+            fold.Add(new Label($"Active: {frame.ActiveNodeId ?? "-"} | Time: {frame.Time:0.###} | Freeze: {_runner.DebugFreeze}") { style = { opacity = 0.85f } });
 
             if (frame.ActivePath.Count > 0)
                 fold.Add(new Label($"Active Path: {string.Join(" -> ", frame.ActivePath)}") { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
@@ -690,6 +783,81 @@ namespace GGemCo2DAiBtEditor
 
             fold.Add(body);
             return fold;
+        }
+
+        private VisualElement BuildBreakpointEditor(string nodeId)
+        {
+            var root = new VisualElement
+            {
+                style =
+                {
+                    marginTop = 6,
+                    marginBottom = 6,
+                    paddingTop = 4,
+                    paddingBottom = 4,
+                    borderTopWidth = 1,
+                    borderBottomWidth = 1,
+                    borderTopColor = new Color(0f, 0f, 0f, 0.2f),
+                    borderBottomColor = new Color(0f, 0f, 0f, 0.2f)
+                }
+            };
+
+            root.Add(new Label("Breakpoint") { style = { unityFontStyleAndWeight = FontStyle.Bold } });
+
+            _runner.TryGetBreakpoint(nodeId, out var breakpoint);
+            if (string.IsNullOrEmpty(breakpoint.NodeId))
+                breakpoint = new BtDebugBreakpoint(nodeId, false, false, false, false);
+
+            root.Add(CreateBreakpointToggle("Break On Visit", breakpoint.BreakOnVisit, value =>
+            {
+                breakpoint.BreakOnVisit = value;
+                ApplyBreakpoint(nodeId, breakpoint);
+            }));
+            root.Add(CreateBreakpointToggle("Break On Success", breakpoint.BreakOnSuccess, value =>
+            {
+                breakpoint.BreakOnSuccess = value;
+                ApplyBreakpoint(nodeId, breakpoint);
+            }));
+            root.Add(CreateBreakpointToggle("Break On Failure", breakpoint.BreakOnFailure, value =>
+            {
+                breakpoint.BreakOnFailure = value;
+                ApplyBreakpoint(nodeId, breakpoint);
+            }));
+            root.Add(CreateBreakpointToggle("Break On Running", breakpoint.BreakOnRunning, value =>
+            {
+                breakpoint.BreakOnRunning = value;
+                ApplyBreakpoint(nodeId, breakpoint);
+            }));
+
+            var clearButton = new Button(() =>
+            {
+                _runner.RemoveBreakpoint(nodeId);
+                _graphView?.ApplyDebug(_runner);
+                RefreshInspector(nodeId);
+                Repaint();
+            })
+            {
+                text = "Clear Breakpoint"
+            };
+            root.Add(clearButton);
+
+            return root;
+        }
+
+        private VisualElement CreateBreakpointToggle(string label, bool initialValue, Action<bool> onChanged)
+        {
+            var toggle = new Toggle(label) { value = initialValue };
+            toggle.RegisterValueChangedCallback(evt => onChanged?.Invoke(evt.newValue));
+            return toggle;
+        }
+
+        private void ApplyBreakpoint(string nodeId, BtDebugBreakpoint breakpoint)
+        {
+            breakpoint.NodeId = nodeId;
+            _runner.SetBreakpoint(breakpoint);
+            _graphView?.ApplyDebug(_runner);
+            RefreshInspector(nodeId);
+            Repaint();
         }
 
         private void DeleteNode(string nodeId)

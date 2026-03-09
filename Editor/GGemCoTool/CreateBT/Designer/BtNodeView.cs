@@ -20,6 +20,7 @@ namespace GGemCo2DAiBt.Editor
 
         private readonly Label _rootBadge;
         private readonly Label _debugBadge;
+        private readonly Label _breakpointBadge;
 
         public BtNodeView(BtNodeRecord record)
         {
@@ -64,6 +65,19 @@ namespace GGemCo2DAiBt.Editor
             };
             titleContainer.Add(_rootBadge);
 
+            _breakpointBadge = new Label("●")
+            {
+                style =
+                {
+                    unityTextAlign = TextAnchor.MiddleCenter,
+                    color = new Color(1f, 0.35f, 0.35f, 1f),
+                    marginLeft = 6,
+                    unityFontStyleAndWeight = FontStyle.Bold,
+                    display = DisplayStyle.None,
+                }
+            };
+            titleContainer.Add(_breakpointBadge);
+
             _debugBadge = new Label()
             {
                 style =
@@ -99,6 +113,19 @@ namespace GGemCo2DAiBt.Editor
         public void MarkAsRoot(bool isRoot)
         {
             _rootBadge.style.display = isRoot ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        public void SetBreakpointState(bool hasBreakpoint, string tooltipText = null)
+        {
+            _breakpointBadge.style.display = hasBreakpoint ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!string.IsNullOrEmpty(tooltipText))
+            {
+                _breakpointBadge.tooltip = tooltipText;
+            }
+            else
+            {
+                _breakpointBadge.tooltip = string.Empty;
+            }
         }
 
         public void SetDebugInfo(string badgeText, string tooltipText)
