@@ -18,6 +18,10 @@ namespace GGemCo2DAiBtEditor
     /// </summary>
     public sealed class BtGraphView : GraphView
     {
+        private const string ClipboardPrefix = "GGEMCO_BT_CLIPBOARD:";
+        private const float RightPanStartThreshold = 4f;
+        private const float DefaultPasteOffsetStep = 30f;
+
         private readonly CreateBtWindow _window;
         private MonsterBehaviorTreeAsset _asset;
 
@@ -40,7 +44,8 @@ namespace GGemCo2DAiBtEditor
         private bool _suppressContextMenuOnce;
         private Vector2 _rightMouseDownPos;
         private Vector2 _lastMousePos;
-        private const float RightPanStartThreshold = 4f;
+        private Vector2 _lastPasteAnchorGraphPos;
+        private int _pasteSerial;
         
         public BtGraphView(CreateBtWindow window)
         {
@@ -52,6 +57,7 @@ namespace GGemCo2DAiBtEditor
             this.AddManipulator(new SelectionDragger());
             this.AddManipulator(new RectangleSelector());
             SetupZoom(ContentZoomer.DefaultMinScale, ContentZoomer.DefaultMaxScale);
+            focusable = true;
 
             graphViewChanged += OnGraphViewChanged;
 
@@ -59,10 +65,14 @@ namespace GGemCo2DAiBtEditor
             RegisterCallback<MouseDownEvent>(OnMouseDown, TrickleDown.TrickleDown);
             RegisterCallback<MouseMoveEvent>(OnMouseMove, TrickleDown.TrickleDown);
             RegisterCallback<MouseUpEvent>(OnMouseUp, TrickleDown.TrickleDown);
+            RegisterCallback<KeyDownEvent>(OnKeyDown, TrickleDown.TrickleDown);
         }
 
         private void OnMouseDown(MouseDownEvent evt)
         {
+            Focus();
+            _lastMousePos = evt.mousePosition;
+
             if (evt.button == 0)
             {
                 // Node/Port를 클릭한 경우는 selection이 유지/변경되므로 별도 처리 불필요.
@@ -82,8 +92,12 @@ namespace GGemCo2DAiBtEditor
                 _lastMousePos = evt.mousePosition;
             }
         }
+
         private void OnMouseMove(MouseMoveEvent evt)
         {
+            var prevMousePos = _lastMousePos;
+            _lastMousePos = evt.mousePosition;
+
             if (!_rightMousePressed)
                 return;
 
@@ -100,14 +114,17 @@ namespace GGemCo2DAiBtEditor
             if (!_isRightPanning)
                 return;
 
-            Vector2 delta = evt.mousePosition - _lastMousePos;
+            Vector2 delta = evt.mousePosition - prevMousePos;
             viewTransform.position += (Vector3)delta;
             _lastMousePos = evt.mousePosition;
 
             evt.StopImmediatePropagation();
         }
+
         private void OnMouseUp(MouseUpEvent evt)
         {
+            _lastMousePos = evt.mousePosition;
+
             if (evt.button != 1)
                 return;
 
@@ -117,6 +134,32 @@ namespace GGemCo2DAiBtEditor
             _rightMousePressed = false;
             _isRightPanning = false;
         }
+
+        private void OnKeyDown(KeyDownEvent evt)
+        {
+            bool isActionKey = evt.ctrlKey || evt.commandKey;
+            if (!isActionKey)
+                return;
+
+            switch (evt.keyCode)
+            {
+                case KeyCode.C:
+                    if (CopySelectionToClipboard())
+                        evt.StopImmediatePropagation();
+                    break;
+
+                case KeyCode.V:
+                    if (PasteFromClipboard(GetNextPasteAnchorGraphPos()))
+                        evt.StopImmediatePropagation();
+                    break;
+
+                case KeyCode.D:
+                    if (DuplicateSelection())
+                        evt.StopImmediatePropagation();
+                    break;
+            }
+        }
+
         private bool IsBackgroundElement(VisualElement ve)
         {
             if (ve == null) return false;
@@ -482,6 +525,7 @@ namespace GGemCo2DAiBtEditor
             if (_asset.rootNodeId == nodeId)
                 _asset.rootNodeId = _asset.nodes.Count > 0 ? _asset.nodes[0].id : string.Empty;
         }
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             if (_suppressContextMenuOnce)
@@ -499,6 +543,22 @@ namespace GGemCo2DAiBtEditor
             }
 
             var graphPos = contentViewContainer.WorldToLocal(evt.mousePosition);
+            _lastMousePos = contentViewContainer.WorldToLocal(evt.mousePosition);
+
+            evt.menu.AppendSeparator();
+            evt.menu.AppendAction(
+                "Copy Selected",
+                _ => CopySelectionToClipboard(),
+                _ => GetSelectedNodeViews().Count > 0 ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            evt.menu.AppendAction(
+                "Paste",
+                _ => PasteFromClipboard(graphPos),
+                _ => CanPasteClipboard(EditorGUIUtility.systemCopyBuffer) ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            evt.menu.AppendAction(
+                "Duplicate Selected",
+                _ => DuplicateSelection(),
+                _ => GetSelectedNodeViews().Count > 0 ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            evt.menu.AppendSeparator();
 
             foreach (var def in BtNodeTypeCatalog.All)
             {
@@ -507,6 +567,320 @@ namespace GGemCo2DAiBtEditor
                     _ => CreateNode(def, graphPos)
                 );
             }
+        }
+
+        private List<BtNodeView> GetSelectedNodeViews()
+        {
+            if (_asset == null)
+                return new List<BtNodeView>();
+
+            var selectedIds = new HashSet<string>(selection?.OfType<BtNodeView>().Select(x => x.NodeId) ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            if (selectedIds.Count == 0)
+                return new List<BtNodeView>();
+
+            var ordered = new List<BtNodeView>();
+            foreach (var node in _asset.nodes)
+            {
+                if (node == null || string.IsNullOrEmpty(node.id))
+                    continue;
+
+                if (!selectedIds.Contains(node.id))
+                    continue;
+
+                if (_views.TryGetValue(node.id, out var view))
+                    ordered.Add(view);
+            }
+
+            return ordered;
+        }
+
+        private BtClipboardData BuildClipboardDataFromSelection()
+        {
+            var selectedViews = GetSelectedNodeViews();
+            if (selectedViews.Count == 0 || _asset == null)
+                return null;
+
+            var selectedIds = new HashSet<string>(selectedViews.Select(x => x.NodeId), StringComparer.Ordinal);
+            var data = new BtClipboardData
+            {
+                schemaVersion = "1.0.0",
+                sourceTreeGuid = _asset.treeGuid,
+            };
+
+            foreach (var view in selectedViews)
+            {
+                var node = _asset.FindNode(view.NodeId);
+                if (node == null)
+                    continue;
+
+                var item = new BtClipboardNodeData
+                {
+                    oldId = node.id,
+                    kind = node.kind,
+                    typeId = node.typeId,
+                    title = node.title,
+                    abortMode = node.abortMode,
+                    comment = node.comment,
+                    colorIndex = node.colorIndex,
+                    graphPosition = node.graphPosition,
+                    graphSize = node.graphSize,
+                    parameters = CloneParameters(node.parameters),
+                };
+
+                if (node.children != null)
+                {
+                    foreach (var childId in node.children)
+                    {
+                        if (!string.IsNullOrEmpty(childId) && selectedIds.Contains(childId))
+                            item.children.Add(childId);
+                    }
+                }
+
+                data.nodes.Add(item);
+            }
+
+            return data.nodes.Count > 0 ? data : null;
+        }
+
+        private bool CopySelectionToClipboard()
+        {
+            if (_asset == null)
+            {
+                _window.MarkDirty("No tree asset selected.");
+                return false;
+            }
+
+            var data = BuildClipboardDataFromSelection();
+            if (data == null)
+            {
+                _window.MarkDirty("No nodes selected to copy.");
+                return false;
+            }
+
+            EditorGUIUtility.systemCopyBuffer = ClipboardPrefix + JsonUtility.ToJson(data);
+            _window.MarkDirty($"Copied {data.nodes.Count} node(s).");
+            return true;
+        }
+
+        private bool CanPasteClipboard(string raw)
+        {
+            return TryDeserializeClipboard(raw, out _);
+        }
+
+        private bool PasteFromClipboard(Vector2 anchorGraphPos)
+        {
+            if (!TryDeserializeClipboard(EditorGUIUtility.systemCopyBuffer, out var data))
+            {
+                _window.MarkDirty("Clipboard does not contain valid BT node data.");
+                return false;
+            }
+
+            return PasteClipboardData(data, anchorGraphPos, incrementSerial: true);
+        }
+
+        private bool DuplicateSelection()
+        {
+            if (_asset == null)
+            {
+                _window.MarkDirty("No tree asset selected.");
+                return false;
+            }
+
+            var data = BuildClipboardDataFromSelection();
+            if (data == null)
+            {
+                _window.MarkDirty("No nodes selected to duplicate.");
+                return false;
+            }
+
+            return PasteClipboardData(data, GetNextPasteAnchorGraphPos(), incrementSerial: true, copiedByDuplicate: true);
+        }
+
+        private bool PasteClipboardData(BtClipboardData data, Vector2 anchorGraphPos, bool incrementSerial, bool copiedByDuplicate = false)
+        {
+            if (_asset == null)
+            {
+                _window.MarkDirty("No tree asset selected.");
+                return false;
+            }
+
+            if (data?.nodes == null || data.nodes.Count == 0)
+            {
+                _window.MarkDirty("Clipboard data is empty.");
+                return false;
+            }
+
+            var copiedNodes = data.nodes.Where(x => x != null && !string.IsNullOrEmpty(x.oldId)).ToList();
+            if (copiedNodes.Count == 0)
+            {
+                _window.MarkDirty("Clipboard data is empty.");
+                return false;
+            }
+
+            Vector2 minPos = copiedNodes[0].graphPosition;
+            for (int i = 1; i < copiedNodes.Count; i++)
+            {
+                minPos = Vector2.Min(minPos, copiedNodes[i].graphPosition);
+            }
+
+            Vector2 finalAnchor = anchorGraphPos;
+            if (incrementSerial)
+            {
+                finalAnchor += Vector2.one * (DefaultPasteOffsetStep * _pasteSerial);
+            }
+
+            Undo.RecordObject(_asset, copiedByDuplicate ? "Duplicate BT Nodes" : "Paste BT Nodes");
+
+            var oldToNewId = new Dictionary<string, string>(StringComparer.Ordinal);
+            var addedNodeIds = new List<string>(copiedNodes.Count);
+
+            foreach (var source in copiedNodes)
+            {
+                var newId = Guid.NewGuid().ToString("N");
+                oldToNewId[source.oldId] = newId;
+            }
+
+            foreach (var source in copiedNodes)
+            {
+                var relativePos = source.graphPosition - minPos;
+                var newNode = new BtNodeRecord
+                {
+                    id = oldToNewId[source.oldId],
+                    kind = source.kind,
+                    typeId = source.typeId,
+                    title = source.title,
+                    abortMode = source.abortMode,
+                    comment = source.comment,
+                    colorIndex = source.colorIndex,
+                    graphPosition = finalAnchor + relativePos,
+                    graphSize = source.graphSize.sqrMagnitude > 0.0001f ? source.graphSize : new Vector2(220, 140),
+                    parameters = CloneParameters(source.parameters),
+                    children = new List<string>(),
+                };
+
+                if (source.children != null)
+                {
+                    foreach (var oldChildId in source.children)
+                    {
+                        if (string.IsNullOrEmpty(oldChildId))
+                            continue;
+
+                        if (oldToNewId.TryGetValue(oldChildId, out var newChildId))
+                            newNode.children.Add(newChildId);
+                    }
+                }
+
+                NormalizePastedNode(newNode);
+                _asset.nodes.Add(newNode);
+                addedNodeIds.Add(newNode.id);
+            }
+
+            EditorUtility.SetDirty(_asset);
+            PopulateFromAsset();
+            SelectNodes(addedNodeIds, frame: true);
+
+            _lastPasteAnchorGraphPos = finalAnchor;
+            if (incrementSerial)
+                _pasteSerial++;
+
+            _window.MarkDirty($"Pasted {addedNodeIds.Count} node(s).");
+            return true;
+        }
+
+        private static void NormalizePastedNode(BtNodeRecord node)
+        {
+            if (node == null)
+                return;
+
+            node.children ??= new List<string>();
+            node.parameters = CloneParameters(node.parameters);
+
+            switch (node.kind)
+            {
+                case BtNodeKind.Action:
+                case BtNodeKind.Condition:
+                    node.children.Clear();
+                    break;
+
+                case BtNodeKind.Decorator:
+                    if (node.children.Count > 1)
+                        node.children = node.children.Take(1).ToList();
+                    break;
+            }
+
+            BtEditorParamUtility.EnsureParams(node, null);
+        }
+
+        private bool TryDeserializeClipboard(string raw, out BtClipboardData data)
+        {
+            data = null;
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            if (!raw.StartsWith(ClipboardPrefix, StringComparison.Ordinal))
+                return false;
+
+            var json = raw.Substring(ClipboardPrefix.Length);
+            if (string.IsNullOrWhiteSpace(json))
+                return false;
+
+            try
+            {
+                data = JsonUtility.FromJson<BtClipboardData>(json);
+            }
+            catch
+            {
+                data = null;
+                return false;
+            }
+
+            return data?.nodes != null && data.nodes.Count > 0;
+        }
+
+        private void SelectNodes(IReadOnlyList<string> nodeIds, bool frame)
+        {
+            if (nodeIds == null || nodeIds.Count == 0)
+                return;
+
+            ClearSelection();
+            foreach (var nodeId in nodeIds)
+            {
+                if (string.IsNullOrEmpty(nodeId))
+                    continue;
+
+                if (_views.TryGetValue(nodeId, out var view))
+                    AddToSelection(view);
+            }
+
+            if (frame && selection != null && selection.Count > 0)
+                FrameSelection();
+        }
+
+        private Vector2 GetNextPasteAnchorGraphPos()
+        {
+            var mouseGraphPos = this.ChangeCoordinatesTo(contentViewContainer, _lastMousePos);
+            if (!float.IsNaN(mouseGraphPos.x) && !float.IsNaN(mouseGraphPos.y))
+                return mouseGraphPos;
+
+            return GetViewportCenterGraphPosition();
+        }
+
+        private Vector2 GetViewportCenterGraphPosition()
+        {
+            Vector2 localCenter = layout.size * 0.5f;
+            return this.ChangeCoordinatesTo(contentViewContainer, localCenter);
+        }
+
+        private static List<BtParamValue> CloneParameters(List<BtParamValue> source)
+        {
+            if (source == null || source.Count == 0)
+                return new List<BtParamValue>();
+
+            var cloned = new List<BtParamValue>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+                cloned.Add(source[i]);
+
+            return cloned;
         }
     }
 }
