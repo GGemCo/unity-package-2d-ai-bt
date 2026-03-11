@@ -25,13 +25,13 @@ namespace GGemCo2DAiBtEditor
         {
             // 테이블 텍스트를 직접 읽어 간단히 파싱합니다.
             // (Skill 패키지의 TableSkill 클래스 의존을 피하기 위함)
-            string path = $"{ConfigAddressablePath.Tables}/skill";
+            string path = $"{ConfigAddressablePath.Tables}/skill_monster";
             string? content = AssetDatabaseLoaderManager.LoadFileText(path);
             if (string.IsNullOrEmpty(content))
             {
                 // 옵션이 없더라도 드롭다운이 깨지지 않도록 최소 항목 제공
                 _cached.Clear();
-                _cached.Add(new SearchableDropdownUtility.Option<int>("0", "(skill table not found)", 0));
+                _cached.Add(new SearchableDropdownUtility.Option<int>("0", "(skill_monster table not found)", 0));
                 _cachedHash = 0;
                 return _cached;
             }
