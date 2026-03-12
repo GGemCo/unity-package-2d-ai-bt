@@ -59,6 +59,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HpPercentBelow", DisplayName = "Hp Percent Below" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.TargetWithinDistance", DisplayName = "Target Within Distance" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.IsSkillInCastRange", DisplayName = "Is Skill In Cast Range" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.SkillUseCountCompare", DisplayName = "Skill Use Count Compare" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HasAffect", DisplayName = "Has Affect" },
             
@@ -101,6 +102,12 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
                     new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
+                },
+                ["Condition.IsSkillInCastRange"] = new List<BtParamDef>
+                {
+                    new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
+                    new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("extraMargin", BtValueType.Float, required: false, defaultValue: 0f),
                 },
                 ["Condition.SkillUseCountCompare"] = new List<BtParamDef>
                 {

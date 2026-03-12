@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using GGemCo2DCore;
+using GGemCo2DSkill;
+using Config;
 
 namespace GGemCo2DAiBt
 {
@@ -414,9 +416,7 @@ namespace GGemCo2DAiBt
             if (!_breakpoints.TryGetValue(ev.NodeId, out var breakpoint))
                 return;
 
-            bool shouldBreak = false;
-            if (breakpoint.BreakOnVisit)
-                shouldBreak = true;
+            bool shouldBreak = breakpoint.BreakOnVisit;
             if (breakpoint.BreakOnSuccess && ev.Status == BtStatus.Success)
                 shouldBreak = true;
             if (breakpoint.BreakOnFailure && ev.Status == BtStatus.Failure)
@@ -636,6 +636,30 @@ namespace GGemCo2DAiBt
                     ok = can;
                     break;
                 }
+                case BtTypeIds.Condition.IsSkillInCastRange:
+                {
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
+                    float extraMargin = ctx.GetFloatParam(node, "extraMargin", fallback: 0f);
+
+                    ok = TryIsSkillInCastRange(ctx, skillUid, requireTarget, extraMargin,
+                        out float distance, out float castRange, out BtDebugReason failReason, out string detail);
+
+                    AddMetric(node.id, "SkillUid", skillUid);
+                    AddMetric(node.id, "Distance", distance, distance < 0f ? "No target" : null);
+                    AddMetric(node.id, "CastRange", castRange);
+                    AddMetric(node.id, "ExtraMargin", extraMargin);
+                    AddMetric(node.id, "Result", ok ? 1f : 0f);
+
+                    AddEvent(
+                        node.id,
+                        BtDebugEventKind.Condition,
+                        "IsSkillInCastRange",
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok ? BtDebugReason.None : failReason,
+                        detail);
+                    break;
+                }
                 case BtTypeIds.Condition.SkillUseCountCompare:
                 {
                     int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
@@ -698,6 +722,90 @@ namespace GGemCo2DAiBt
             }
 
             return ok ? BtStatus.Success : BtStatus.Failure;
+        }
+
+        private bool TryIsSkillInCastRange(
+            BtContext ctx,
+            int skillUid,
+            bool requireTarget,
+            float extraMargin,
+            out float distance,
+            out float castRange,
+            out BtDebugReason failReason,
+            out string detail)
+        {
+            distance = -1f;
+            castRange = 0f;
+            failReason = BtDebugReason.None;
+            detail = string.Empty;
+
+            if (skillUid <= 0)
+            {
+                failReason = BtDebugReason.SkillUidInvalid;
+                detail = $"invalid skillUid={skillUid}";
+                return false;
+            }
+
+            if (!SkillDefinitionResolver.TryResolve(skillUid, ConfigCommon.SkillTableSource.Monster, out var skill) || skill == null)
+            {
+                failReason = BtDebugReason.SkillUidInvalid;
+                detail = $"skill not found. skillUid={skillUid}";
+                return false;
+            }
+
+            float resolvedCastRange = SkillRangeResolver.GetCastRange(skill);
+            castRange = Mathf.Max(0f, resolvedCastRange + extraMargin);
+
+            var targetingMode = (ConfigCommonSkill.SkillTargetingMode)Mathf.Clamp((int)skill.TargetingMode, 0, int.MaxValue);
+            if (resolvedCastRange <= 0f)
+            {
+                detail = $"cast range unlimited. skillUid={skillUid}, mode={targetingMode}";
+                return true;
+            }
+
+            if (targetingMode == ConfigCommonSkill.SkillTargetingMode.Self)
+            {
+                detail = $"self target skill. castRange={castRange:0.###}";
+                return true;
+            }
+
+            bool hasTarget = ctx.Driver.TryGetTarget(out var targetTransform) && targetTransform != null;
+            if (!hasTarget)
+            {
+                if (requireTarget)
+                {
+                    failReason = BtDebugReason.NoTarget;
+                    detail = $"target missing. skillUid={skillUid}, mode={targetingMode}";
+                    return false;
+                }
+
+                detail = $"target missing but requireTarget=false. skillUid={skillUid}, mode={targetingMode}";
+                return true;
+            }
+
+            Vector3 origin = ctx.Owner.transform.position;
+            Vector3 targetPoint = targetTransform.position;
+
+            switch (targetingMode)
+            {
+                case ConfigCommonSkill.SkillTargetingMode.GroundTarget:
+                case ConfigCommonSkill.SkillTargetingMode.LockOnGuaranteedHit:
+                case ConfigCommonSkill.SkillTargetingMode.TargetCenteredArea:
+                case ConfigCommonSkill.SkillTargetingMode.FollowTargetArea:
+                    distance = Vector2.Distance(new Vector2(origin.x, origin.y), new Vector2(targetPoint.x, targetPoint.y));
+                    break;
+
+                default:
+                    detail = $"mode={targetingMode} does not require cast range check. castRange={castRange:0.###}";
+                    return true;
+            }
+
+            bool inRange = distance <= castRange;
+            if (!inRange)
+                failReason = BtDebugReason.OutOfRange;
+
+            detail = $"skillUid={skillUid}, mode={targetingMode}, distance={distance:0.###}, castRange={castRange:0.###}, extraMargin={extraMargin:0.###}, result={inRange}";
+            return inRange;
         }
         #endregion
 

@@ -260,6 +260,7 @@ namespace GGemCo2DAiBtEditor
                 return false;
 
             return string.Equals(nodeTypeId, "Condition.CanUseSkill", StringComparison.Ordinal)
+                   || string.Equals(nodeTypeId, "Condition.IsSkillInCastRange", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Condition.SkillUseCountCompare", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Action.ResetSkillUseCount", StringComparison.Ordinal);
