@@ -14,7 +14,7 @@ namespace GGemCo2DAiBtEditor
     /// 을 제공한다.
     /// </summary>
     [CustomEditor(typeof(MonsterBehaviorTreeAsset))]
-    public sealed class MonsterBehaviorTreeAssetEditor : UnityEditor.Editor
+    public sealed class MonsterBehaviorTreeAssetEditor : Editor
     {
         private const float Space = 4f;
 

@@ -2,7 +2,6 @@
 using System;
 using GGemCo2DAiBt;
 using UnityEditor;
-using UnityEngine;
 
 namespace GGemCo2DAiBtEditor
 {

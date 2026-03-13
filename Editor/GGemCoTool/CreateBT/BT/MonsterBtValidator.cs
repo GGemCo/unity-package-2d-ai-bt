@@ -12,17 +12,17 @@ namespace GGemCo2DAiBtEditor
 
         public readonly struct Issue
         {
-            public readonly Severity severity;
-            public readonly string code;
-            public readonly string message;
-            public readonly string nodeId;
+            public readonly Severity Severity;
+            public readonly string Code;
+            public readonly string Message;
+            public readonly string NodeId;
 
             public Issue(Severity severity, string code, string message, string nodeId = null)
             {
-                this.severity = severity;
-                this.code = code;
-                this.message = message;
-                this.nodeId = nodeId;
+                this.Severity = severity;
+                this.Code = code;
+                this.Message = message;
+                this.NodeId = nodeId;
             }
         }
 
@@ -57,6 +57,10 @@ namespace GGemCo2DAiBtEditor
             if (!string.IsNullOrEmpty(asset.rootNodeId) && !nodeById.ContainsKey(asset.rootNodeId))
                 issues.Add(new Issue(Severity.Error, "BT004", $"Root node not found: {asset.rootNodeId}", asset.rootNodeId));
 
+            var incomingCount = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var id in nodeById.Keys)
+                incomingCount[id] = 0;
+
             // children rule + missing reference
             foreach (var kv in nodeById)
             {
@@ -88,16 +92,45 @@ namespace GGemCo2DAiBtEditor
                         continue;
                     }
                     if (!nodeById.ContainsKey(childId))
+                    {
                         issues.Add(new Issue(Severity.Error, "BT021", $"Child node not found: {childId}", n.id));
+                        continue;
+                    }
+
+                    incomingCount[childId] = incomingCount.TryGetValue(childId, out var count) ? count + 1 : 1;
                 }
             }
 
-            // cycle detection (DFS)
-            if (!string.IsNullOrEmpty(asset.rootNodeId) && nodeById.ContainsKey(asset.rootNodeId))
+            foreach (var kv in nodeById)
             {
-                var visited = new HashSet<string>(StringComparer.Ordinal);
-                var stack = new HashSet<string>(StringComparer.Ordinal);
-                DfsDetectCycle(asset.rootNodeId, nodeById, visited, stack, issues);
+                var node = kv.Value;
+                incomingCount.TryGetValue(node.id, out var count);
+
+                if (string.Equals(node.id, asset.rootNodeId, StringComparison.Ordinal))
+                {
+                    if (count > 0)
+                        issues.Add(new Issue(Severity.Error, "BT040", "Root node must not have any parent.", node.id));
+                    continue;
+                }
+
+                if (count == 0)
+                    issues.Add(new Issue(Severity.Warning, "BT041", "Node is not reachable from any parent.", node.id));
+
+                int maxParentCount = BtNodeParentPolicy.GetMaxParentCount(node);
+                if (maxParentCount >= 0 && count > maxParentCount)
+                {
+                    string reason = BtNodeParentPolicy.GetMultipleParentsBlockedReason(node);
+                    issues.Add(new Issue(Severity.Error, "BT042", $"Parent count exceeded ({count}). {reason}", node.id));
+                }
+            }
+
+            // cycle detection (all connected/unconnected graphs)
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var stack = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var id in nodeById.Keys)
+            {
+                if (!visited.Contains(id))
+                    DfsDetectCycle(id, nodeById, visited, stack, issues);
             }
 
             return issues;
@@ -148,14 +181,14 @@ namespace GGemCo2DAiBtEditor
             for (int i = 0; i < issues.Count; i++)
             {
                 var it = issues[i];
-                string head = $"[BT] {it.severity} {it.code}";
-                string msg = string.IsNullOrEmpty(it.nodeId) ? it.message : $"{it.message} (node={it.nodeId})";
-                if (it.severity == Severity.Error)
+                string head = $"[BT] {it.Severity} {it.Code}";
+                string msg = string.IsNullOrEmpty(it.NodeId) ? it.Message : $"{it.Message} (node={it.NodeId})";
+                if (it.Severity == Severity.Error)
                 {
                     error++;
                     Debug.LogError($"{head}: {msg}", context);
                 }
-                else if (it.severity == Severity.Warning)
+                else if (it.Severity == Severity.Warning)
                 {
                     Debug.LogWarning($"{head}: {msg}", context);
                 }

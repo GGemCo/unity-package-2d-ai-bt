@@ -1,9 +1,10 @@
 #if UNITY_EDITOR
+using GGemCo2DAiBt;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
 
-namespace GGemCo2DAiBt.Editor
+namespace GGemCo2DAiBtEditor
 {
     /// <summary>
     /// GraphView 상에서 표시되는 BT 노드 View.
@@ -30,8 +31,9 @@ namespace GGemCo2DAiBt.Editor
 
             ApplyRecordToView(record);
 
-            // Input: Single (항상 부모 1개만 허용)
-            InPort = InstantiatePort(Orientation.Horizontal, Direction.Input, Port.Capacity.Single, typeof(bool));
+            // Input: 노드 정책에 따라 Single/Multi 허용
+            var inputCapacity = BtNodeParentPolicy.SupportsMultipleParents(record) ? Port.Capacity.Multi : Port.Capacity.Single;
+            InPort = InstantiatePort(Orientation.Horizontal, Direction.Input, inputCapacity, typeof(bool));
             InPort.portName = "";
             inputContainer.Add(InPort);
 
