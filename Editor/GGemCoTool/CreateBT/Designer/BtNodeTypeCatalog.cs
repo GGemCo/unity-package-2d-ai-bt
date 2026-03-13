@@ -1,4 +1,4 @@
-#if UNITY_EDITOR
+﻿#if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
 using GGemCo2DAiBt;
@@ -61,6 +61,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.IsSkillInCastRange", DisplayName = "Is Skill In Cast Range" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.SkillUseCountCompare", DisplayName = "Skill Use Count Compare" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.LastSkillResult", DisplayName = "Last Skill Result" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HasAffect", DisplayName = "Has Affect" },
             
             // Action
@@ -71,6 +72,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.MoveToTarget", DisplayName = "Move To Target" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.AttackBasic", DisplayName = "Attack Basic" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkillAndWait", DisplayName = "Use Skill And Wait" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ClearAggro", DisplayName = "Clear Aggro" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ResetSkillUseCount", DisplayName = "Reset Skill Use Count" },
         };
@@ -121,6 +123,12 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("affectUid", BtValueType.Int, required: true, defaultValue: 0),
                 },
+                ["Condition.LastSkillResult"] = new List<BtParamDef>
+                {
+                    new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
+                    new BtParamDef("result", BtValueType.EnumString, required: true, defaultValue: "Succeeded"),
+                    new BtParamDef("consume", BtValueType.Bool, required: false, defaultValue: true),
+                },
                 
                 // Action
                 ["Action.Wait"] = new List<BtParamDef>
@@ -133,6 +141,11 @@ namespace GGemCo2DAiBtEditor
                     new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
                     // EnumString: Running / Success
                     new BtParamDef("busyReturn", BtValueType.EnumString, required: false, defaultValue: "Running"),
+                },
+                ["Action.UseSkillAndWait"] = new List<BtParamDef>
+                {
+                    new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
+                    new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
                 },
                 ["Action.ResetSkillUseCount"] = new List<BtParamDef>
                 {

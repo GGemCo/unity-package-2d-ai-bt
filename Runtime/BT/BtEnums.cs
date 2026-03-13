@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace GGemCo2DAiBt
 {
@@ -78,6 +78,7 @@ namespace GGemCo2DAiBt
 
             // Skill UID별 사용 횟수 비교
             public const string SkillUseCountCompare = "Condition.SkillUseCountCompare";
+            public const string LastSkillResult = "Condition.LastSkillResult";
             public const string HasAffect = "Condition.HasAffect";
         }
 
@@ -90,6 +91,7 @@ namespace GGemCo2DAiBt
             public const string MoveToTarget = "Action.MoveToTarget";
             public const string AttackBasic = "Action.AttackBasic";
             public const string UseSkill = "Action.UseSkill";
+            public const string UseSkillAndWait = "Action.UseSkillAndWait";
             public const string ClearAggro = "Action.ClearAggro";
             public const string ResetSkillUseCount = "Action.ResetSkillUseCount";
         }

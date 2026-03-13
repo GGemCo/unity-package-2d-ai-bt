@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using GGemCo2DCore;
@@ -289,8 +289,8 @@ namespace GGemCo2DAiBt
             if (!CanRunThisTick())
                 return;
 
-            _runtime.tickIndex++;
-            _runtime.lastTickTime = now;
+            _runtime.TickIndex++;
+            _runtime.LastTickTime = now;
 
             _breakTriggeredThisTick = false;
 
@@ -301,7 +301,7 @@ namespace GGemCo2DAiBt
                 _debugMetrics.Clear();
                 _execStack.Clear();
                 DebugActiveNodeId = null;
-                _currentDebugFrame.Reset(_runtime.tickIndex, now, _treeAsset.rootNodeId);
+                _currentDebugFrame.Reset(_runtime.TickIndex, now, _treeAsset.rootNodeId);
             }
 
             if (!_nodeById.ContainsKey(_treeAsset.rootNodeId))
@@ -429,7 +429,7 @@ namespace GGemCo2DAiBt
 
             _breakTriggeredThisTick = true;
             DebugFreeze = true;
-            DebugLastBreakInfo = new BtDebugBreakInfo(_runtime != null ? _runtime.tickIndex : 0, ev.NodeId, ev.Status, ev.Reason == BtDebugReason.None ? BtDebugReason.BreakpointMatched : ev.Reason, ev.Summary);
+            DebugLastBreakInfo = new BtDebugBreakInfo(_runtime != null ? _runtime.TickIndex : 0, ev.NodeId, ev.Status, ev.Reason == BtDebugReason.None ? BtDebugReason.BreakpointMatched : ev.Reason, ev.Summary);
         }
 
         private void AddMetric(string nodeId, string key, float value, string text = null)
@@ -437,6 +437,42 @@ namespace GGemCo2DAiBt
             if (!_enableDebugTrace) return;
             if (_debugMetrics.Count >= _debugMetricCapacity) return;
             _debugMetrics.Add(new BtDebugMetric(nodeId, key, value, text));
+        }
+
+        private static void ResetCompositeState(BtNodeState nodeState)
+        {
+            if (nodeState == null)
+                return;
+
+            nodeState.RunningChildIndex = 0;
+            nodeState.LastStatus = BtStatus.Failure;
+        }
+
+        private void ResetSubtreeRuntime(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId) || _runtime == null)
+                return;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            ResetSubtreeRuntimeRecursive(nodeId, includeSelf: false, visited);
+        }
+
+        private void ResetSubtreeRuntimeRecursive(string nodeId, bool includeSelf, HashSet<string> visited)
+        {
+            if (string.IsNullOrEmpty(nodeId) || visited == null || !visited.Add(nodeId))
+                return;
+
+            if (includeSelf)
+            {
+                _runtime.NodeStates.Remove(nodeId);
+                _runtime.Timeouts.Remove(nodeId);
+            }
+
+            if (!_nodeById.TryGetValue(nodeId, out var node) || node?.children == null)
+                return;
+
+            for (int i = 0; i < node.children.Count; i++)
+                ResetSubtreeRuntimeRecursive(node.children[i], includeSelf: true, visited);
         }
 
         #region Composite
@@ -447,7 +483,11 @@ namespace GGemCo2DAiBt
             switch (node.typeId)
             {
                 case BtTypeIds.Composite.Selector:
-                    for (int i = 0; i < node.children.Count; i++)
+                {
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(node.id);
+                    int startIndex = Mathf.Clamp(nodeState.RunningChildIndex, 0, node.children.Count - 1);
+
+                    for (int i = startIndex; i < node.children.Count; i++)
                     {
                         var st = ExecuteNode(node.children[i], ctx, depth + 1);
                         if (_breakTriggeredThisTick)
@@ -455,17 +495,35 @@ namespace GGemCo2DAiBt
                             AddEvent(node.id, BtDebugEventKind.Composite, "Selector", st, BtDebugReason.BreakpointMatched, $"break after child[{i}] => {st}");
                             return st;
                         }
-                        if (st != BtStatus.Failure)
+
+                        if (st == BtStatus.Failure)
+                            continue;
+
+                        nodeState.LastStatus = st;
+
+                        if (st == BtStatus.Running)
                         {
-                            AddEvent(node.id, BtDebugEventKind.Composite, "Selector", st, BtDebugReason.None, $"child[{i}] => {st}");
-                            return st;
+                            nodeState.RunningChildIndex = i;
+                            AddEvent(node.id, BtDebugEventKind.Composite, "Selector", BtStatus.Running, BtDebugReason.None, $"resume child[{i}] => Running");
+                            return BtStatus.Running;
                         }
+
+                        ResetCompositeState(nodeState);
+                        AddEvent(node.id, BtDebugEventKind.Composite, "Selector", st, BtDebugReason.None, $"child[{i}] => {st}");
+                        return st;
                     }
-                    AddEvent(node.id, BtDebugEventKind.Composite, "Selector", BtStatus.Failure, BtDebugReason.ChildMissing, $"all {node.children.Count} children failed");
+
+                    ResetCompositeState(nodeState);
+                    AddEvent(node.id, BtDebugEventKind.Composite, "Selector", BtStatus.Failure, BtDebugReason.ChildMissing, $"all {node.children.Count} children failed (startIndex={startIndex})");
                     return BtStatus.Failure;
+                }
 
                 case BtTypeIds.Composite.Sequence:
-                    for (int i = 0; i < node.children.Count; i++)
+                {
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(node.id);
+                    int startIndex = Mathf.Clamp(nodeState.RunningChildIndex, 0, node.children.Count - 1);
+
+                    for (int i = startIndex; i < node.children.Count; i++)
                     {
                         var st = ExecuteNode(node.children[i], ctx, depth + 1);
                         if (_breakTriggeredThisTick)
@@ -473,14 +531,30 @@ namespace GGemCo2DAiBt
                             AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", st, BtDebugReason.BreakpointMatched, $"break after child[{i}] => {st}");
                             return st;
                         }
-                        if (st != BtStatus.Success)
+
+                        nodeState.LastStatus = st;
+
+                        if (st == BtStatus.Success)
+                            continue;
+
+                        if (st == BtStatus.Running)
                         {
-                            AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", st, BtDebugReason.None, $"child[{i}] => {st}");
-                            return st;
+                            nodeState.RunningChildIndex = i;
+                            AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", BtStatus.Running, BtDebugReason.None, $"resume child[{i}] => Running");
+                            return BtStatus.Running;
                         }
+
+                        ResetCompositeState(nodeState);
+                        ResetSubtreeRuntime(node.id);
+                        AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", BtStatus.Failure, BtDebugReason.None, $"child[{i}] => Failure");
+                        return BtStatus.Failure;
                     }
-                    AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", BtStatus.Success, BtDebugReason.None, $"all {node.children.Count} children succeeded");
+
+                    ResetCompositeState(nodeState);
+                    ResetSubtreeRuntime(node.id);
+                    AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", BtStatus.Success, BtDebugReason.None, $"all {node.children.Count} children succeeded (startIndex={startIndex})");
                     return BtStatus.Success;
+                }
 
                 case BtTypeIds.Composite.RandomWeighted:
                 {
@@ -658,6 +732,51 @@ namespace GGemCo2DAiBt
                         ok ? BtStatus.Success : BtStatus.Failure,
                         ok ? BtDebugReason.None : failReason,
                         detail);
+                    break;
+                }
+                case BtTypeIds.Condition.LastSkillResult:
+                {
+                    if (ctx.SkillDriver is not IMonsterSkillDriverFeedback feedback)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillResult", BtStatus.Failure, BtDebugReason.InvalidParameter, "Skill feedback driver missing");
+                        ok = false;
+                        break;
+                    }
+
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    string expected = ctx.GetEnumStringParam(node, "result", fallback: nameof(MonsterSkillExecutionState.Succeeded));
+                    bool consume = ctx.GetBoolParam(node, "consume", fallback: true);
+
+                    if (skillUid <= 0)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillResult", BtStatus.Failure, BtDebugReason.SkillUidInvalid, $"skillUid={skillUid}");
+                        ok = false;
+                        break;
+                    }
+
+                    MonsterSkillExecutionResult result;
+                    bool hasResult = consume
+                        ? feedback.ConsumeLastSkillResult(skillUid, out result)
+                        : feedback.TryGetLastSkillResult(skillUid, out result);
+                    if (!hasResult)
+                    {
+                        AddMetric(node.id, "SkillUid", skillUid);
+                        AddMetric(node.id, "Result", 0f, "No result");
+                        AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillResult", BtStatus.Failure, BtDebugReason.None, $"skillUid={skillUid}, no result");
+                        ok = false;
+                        break;
+                    }
+
+
+                    bool parsed = Enum.TryParse(expected, true, out MonsterSkillExecutionState expectedState);
+                    if (!parsed)
+                        expectedState = MonsterSkillExecutionState.Succeeded;
+
+                    ok = result.State == expectedState;
+                    AddMetric(node.id, "SkillUid", skillUid);
+                    AddMetric(node.id, "Sequence", result.Sequence);
+                    AddMetric(node.id, "Result", ok ? 1f : 0f, result.State.ToString());
+                    AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillResult", ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.InvalidParameter, $"skillUid={skillUid}, actual={result.State}, expected={expectedState}, sequence={result.Sequence}");
                     break;
                 }
                 case BtTypeIds.Condition.SkillUseCountCompare:
@@ -848,6 +967,86 @@ namespace GGemCo2DAiBt
                     AddEvent(node.id, BtDebugEventKind.Action, "AttackBasic", BtStatus.Success, BtDebugReason.None, "RequestAttackOnce()");
                     return BtStatus.Success;
                 
+                case BtTypeIds.Action.UseSkillAndWait:
+                {
+                    if (ctx.SkillDriver is not IMonsterSkillDriverFeedback feedback)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.InvalidParameter, "Skill feedback driver missing");
+                        return BtStatus.Failure;
+                    }
+
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
+
+                    if (skillUid <= 0)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.SkillUidInvalid, $"skillUid={skillUid}");
+                        return BtStatus.Failure;
+                    }
+
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(node.id);
+
+                    if (!nodeState.SkillStarted)
+                    {
+                        if (ctx.SkillDriver.IsSkillBusy)
+                        {
+                            AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Running, BtDebugReason.SkillBusy, $"skillUid={skillUid}, waiting other skill");
+                            return BtStatus.Running;
+                        }
+
+                        bool hasTarget = ctx.Driver.TryGetTarget(out var targetTr) && targetTr != null;
+                        if (requireTarget && !hasTarget)
+                        {
+                            AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.NoTarget, $"skillUid={skillUid}, requireTarget=true");
+                            return BtStatus.Failure;
+                        }
+
+                        Vector3 ground = hasTarget ? targetTr.position : ctx.Owner.transform.position;
+                        Vector3 raw = hasTarget ? (targetTr.position - ctx.Owner.transform.position) : Vector3.right;
+                        var forward = new Vector2(raw.x, raw.y);
+
+                        var startResult = feedback.TryUseSkill(skillUid, new MonsterSkillTarget(targetTr, ground, forward));
+                        if (startResult != SkillUseResult.Started)
+                        {
+                            AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.InvalidParameter, $"skillUid={skillUid}, result={startResult}");
+                            return BtStatus.Failure;
+                        }
+
+                        nodeState.SkillStarted = true;
+                        nodeState.RunningSkillUid = skillUid;
+                        AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Running, BtDebugReason.None, $"skillUid={skillUid}, Started");
+                        return BtStatus.Running;
+                    }
+
+                    if (feedback.IsRunningSkill(nodeState.RunningSkillUid))
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Running, BtDebugReason.None, $"skillUid={nodeState.RunningSkillUid}, Running");
+                        return BtStatus.Running;
+                    }
+
+                    if (feedback.ConsumeLastSkillResult(nodeState.RunningSkillUid, out var execResult))
+                    {
+                        bool success = execResult.State == MonsterSkillExecutionState.Succeeded;
+                        int finishedSkillUid = nodeState.RunningSkillUid;
+                        nodeState.SkillStarted = false;
+                        nodeState.RunningSkillUid = 0;
+
+                        if (success)
+                        {
+                            ctx.Blackboard?.IncrementSkillUseCount(finishedSkillUid);
+                            AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Success, BtDebugReason.None, $"skillUid={finishedSkillUid}, completed={execResult.State}, sequence={execResult.Sequence}");
+                            AddEvent(node.id, BtDebugEventKind.Blackboard, "SkillUseCountIncrement", BtStatus.Success, BtDebugReason.None, $"skillUid={finishedSkillUid}, count={ctx.Blackboard?.GetSkillUseCount(finishedSkillUid) ?? 0}");
+                            return BtStatus.Success;
+                        }
+
+                        AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.InvalidParameter, $"skillUid={finishedSkillUid}, completed={execResult.State}, sequence={execResult.Sequence}");
+                        return BtStatus.Failure;
+                    }
+
+                    AddEvent(node.id, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Running, BtDebugReason.None, $"skillUid={nodeState.RunningSkillUid}, awaiting completion result");
+                    return BtStatus.Running;
+                }
+
                 case BtTypeIds.Action.UseSkill:
                 {
                     if (ctx.SkillDriver == null)
@@ -1015,15 +1214,15 @@ namespace GGemCo2DAiBt
             {
                 if (sec <= 0f) return BtStatus.Success;
 
-                if (!Runtime.timeouts.TryGetValue(nodeId, out float start))
+                if (!Runtime.Timeouts.TryGetValue(nodeId, out float start))
                 {
-                    Runtime.timeouts[nodeId] = Time.time;
+                    Runtime.Timeouts[nodeId] = Time.time;
                     return BtStatus.Running;
                 }
 
                 if (Time.time - start >= sec)
                 {
-                    Runtime.timeouts.Remove(nodeId);
+                    Runtime.Timeouts.Remove(nodeId);
                     return BtStatus.Success;
                 }
 
@@ -1033,9 +1232,9 @@ namespace GGemCo2DAiBt
             public bool IsTimeoutExceeded(string nodeId, float sec)
             {
                 if (sec <= 0f) return false;
-                if (!Runtime.timeouts.TryGetValue(nodeId, out float start))
+                if (!Runtime.Timeouts.TryGetValue(nodeId, out float start))
                 {
-                    Runtime.timeouts[nodeId] = Time.time;
+                    Runtime.Timeouts[nodeId] = Time.time;
                     return false;
                 }
                 return Time.time - start >= sec;
@@ -1043,18 +1242,18 @@ namespace GGemCo2DAiBt
 
             public void ResetTimeout(string nodeId)
             {
-                Runtime.timeouts.Remove(nodeId);
+                Runtime.Timeouts.Remove(nodeId);
             }
 
             public bool IsCooldownReady(string key)
             {
-                return !Runtime.cooldowns.TryGetValue(key, out float readyAt) || Time.time >= readyAt;
+                return !Runtime.Cooldowns.TryGetValue(key, out float readyAt) || Time.time >= readyAt;
             }
 
             public void ConsumeCooldown(string key, float sec)
             {
                 if (sec <= 0f) return;
-                Runtime.cooldowns[key] = Time.time + sec;
+                Runtime.Cooldowns[key] = Time.time + sec;
             }
 
             public float GetFloatParam(BtNodeRecord node, string key, float fallback)
