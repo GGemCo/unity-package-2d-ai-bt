@@ -222,7 +222,7 @@ namespace GGemCo2DAiBt
             }
             
             _tickRateHz = aiBtSettings.tickRateHz;
-            _enableDebugLog = aiBtSettings.enableDebugLog;
+            _enableDebugLog = aiBtSettings.EnableDebugLog;
             _enableDebugTrace = aiBtSettings.enableDebugTrace;
             _debugTraceCapacity = aiBtSettings.debugTraceCapacity;
             _debugMetricCapacity = aiBtSettings.debugMetricCapacity;

@@ -1,3 +1,4 @@
+using GGemCo2DCore;
 using UnityEngine;
 
 namespace GGemCo2DAiBt
@@ -14,7 +15,10 @@ namespace GGemCo2DAiBt
         public float tickRateHz = 1f;
 
         [Header("Debug")]
-        public bool enableDebugLog;
+        [SerializeField, DebugOption("플레이어 상태 로그 출력")]
+        private bool enableDebugLog;
+        public bool EnableDebugLog => DebugOptionRuntimeUtility.Resolve(enableDebugLog);
+        
         [Tooltip("디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.")]
         public bool enableDebugTrace = true;
         [Min(16), Tooltip("디버그 트레이스의 최대 방문 노드 기록 개수(한 틱 기준).")]
