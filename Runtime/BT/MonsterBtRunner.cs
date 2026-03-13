@@ -779,6 +779,51 @@ namespace GGemCo2DAiBt
                     AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillResult", ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.InvalidParameter, $"skillUid={skillUid}, actual={result.State}, expected={expectedState}, sequence={result.Sequence}");
                     break;
                 }
+                case BtTypeIds.Condition.LastSkillCombatOutcome:
+                {
+                    if (ctx.SkillDriver is not IMonsterSkillDriverFeedback feedback)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillCombatOutcome", BtStatus.Failure, BtDebugReason.InvalidParameter, "Skill feedback driver missing");
+                        ok = false;
+                        break;
+                    }
+
+                    int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
+                    string expected = ctx.GetEnumStringParam(node, "outcome", fallback: nameof(MonsterSkillCombatOutcome.Hit));
+                    bool consume = ctx.GetBoolParam(node, "consume", fallback: true);
+
+                    if (skillUid <= 0)
+                    {
+                        AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillCombatOutcome", BtStatus.Failure, BtDebugReason.SkillUidInvalid, $"skillUid={skillUid}");
+                        ok = false;
+                        break;
+                    }
+
+                    MonsterSkillCombatReport report;
+                    bool hasReport = consume
+                        ? feedback.ConsumeLastSkillCombatReport(skillUid, out report)
+                        : feedback.TryGetLastSkillCombatReport(skillUid, out report);
+                    if (!hasReport)
+                    {
+                        AddMetric(node.id, "SkillUid", skillUid);
+                        AddMetric(node.id, "Result", 0f, "No combat report");
+                        AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillCombatOutcome", BtStatus.Failure, BtDebugReason.None, $"skillUid={skillUid}, no combat report");
+                        ok = false;
+                        break;
+                    }
+
+                    bool parsed = Enum.TryParse(expected, true, out MonsterSkillCombatOutcome expectedOutcome);
+                    if (!parsed)
+                        expectedOutcome = MonsterSkillCombatOutcome.Hit;
+
+                    ok = report.Outcome == expectedOutcome;
+                    AddMetric(node.id, "SkillUid", skillUid);
+                    AddMetric(node.id, "Sequence", report.Sequence);
+                    AddMetric(node.id, "AttackId", report.AttackId);
+                    AddMetric(node.id, "Result", ok ? 1f : 0f, report.Outcome.ToString());
+                    AddEvent(node.id, BtDebugEventKind.Condition, "LastSkillCombatOutcome", ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.InvalidParameter, $"skillUid={skillUid}, actual={report.Outcome}, expected={expectedOutcome}, sequence={report.Sequence}, attackId={report.AttackId}");
+                    break;
+                }
                 case BtTypeIds.Condition.SkillUseCountCompare:
                 {
                     int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);

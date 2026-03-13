@@ -265,6 +265,7 @@ namespace GGemCo2DAiBtEditor
                    || string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Action.UseSkillAndWait", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Condition.LastSkillResult", StringComparison.Ordinal)
+                   || string.Equals(nodeTypeId, "Condition.LastSkillCombatOutcome", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Action.ResetSkillUseCount", StringComparison.Ordinal);
         }
 
@@ -543,6 +544,13 @@ namespace GGemCo2DAiBtEditor
                 string.Equals(key, "result", StringComparison.Ordinal))
             {
                 options = new[] { "Succeeded", "Canceled", "Failed" };
+                return true;
+            }
+
+            if (string.Equals(nodeTypeId, "Condition.LastSkillCombatOutcome", StringComparison.Ordinal) &&
+                string.Equals(key, "outcome", StringComparison.Ordinal))
+            {
+                options = new[] { "Hit", "Guarded", "JustGuarded", "Missed", "Immune", "Evaded" };
                 return true;
             }
 

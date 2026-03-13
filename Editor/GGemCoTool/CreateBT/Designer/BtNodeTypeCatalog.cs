@@ -62,6 +62,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.IsSkillInCastRange", DisplayName = "Is Skill In Cast Range" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.SkillUseCountCompare", DisplayName = "Skill Use Count Compare" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.LastSkillResult", DisplayName = "Last Skill Result" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.LastSkillCombatOutcome", DisplayName = "Last Skill Combat Outcome" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HasAffect", DisplayName = "Has Affect" },
             
             // Action
@@ -127,6 +128,12 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
                     new BtParamDef("result", BtValueType.EnumString, required: true, defaultValue: "Succeeded"),
+                    new BtParamDef("consume", BtValueType.Bool, required: false, defaultValue: true),
+                },
+                ["Condition.LastSkillCombatOutcome"] = new List<BtParamDef>
+                {
+                    new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
+                    new BtParamDef("outcome", BtValueType.EnumString, required: true, defaultValue: "Hit"),
                     new BtParamDef("consume", BtValueType.Bool, required: false, defaultValue: true),
                 },
                 
