@@ -1,9 +1,7 @@
 ﻿using System.Threading.Tasks;
 using GGemCo2DCore;
 using UnityEngine;
-#if GGEMCO_2D_SKILL
 using GGemCo2DSkill;
-#endif
 
 namespace GGemCo2DAiBt
 {
@@ -42,7 +40,6 @@ namespace GGemCo2DAiBt
 
 #endif
             // 스킬 컴포넌트 추가하기
-#if GGEMCO_2D_SKILL
             var skillExecutor = ch.gameObject.GetComponent<SkillExecutor>();
             if (skillExecutor == null) ch.gameObject.AddComponent<SkillExecutor>();
             
@@ -52,7 +49,6 @@ namespace GGemCo2DAiBt
                 monsterSkillDriverAdapter = ch.gameObject.AddComponent<MonsterSkillDriverAdapter>();
             }
             monsterSkillDriverAdapter.SetSkillExecutor(skillExecutor);
-#endif
         }
 
         private Task OnCharacterSpawnedAsync(CharacterBase ch)
