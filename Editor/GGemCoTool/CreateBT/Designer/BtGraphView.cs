@@ -249,28 +249,30 @@ namespace GGemCo2DAiBtEditor
         public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)
         {
             var compatible = new List<Port>();
+            if (_asset == null)
+                return compatible;
+
             foreach (var port in ports.ToList())
             {
                 if (port == startPort) continue;
                 if (port.node == startPort.node) continue;
                 if (port.direction == startPort.direction) continue;
-                if (port.node is not BtNodeView targetView) continue;
-                if (startPort.node is not BtNodeView startView) continue;
+                if (startPort.node is not BtNodeView startNode) continue;
+                if (port.node is not BtNodeView otherNode) continue;
 
-                BtNodeView parentView;
-                BtNodeView childView;
-                if (startPort.direction == Direction.Output)
-                {
-                    parentView = startView;
-                    childView = targetView;
-                }
-                else
-                {
-                    parentView = targetView;
-                    childView = startView;
-                }
+                var parentView = startPort.direction == Direction.Output ? startNode : otherNode;
+                var childView = startPort.direction == Direction.Output ? otherNode : startNode;
 
-                if (!CanConnect(parentView.NodeId, childView.NodeId, out _))
+                if (parentView.OutPort == null || childView.InPort == null)
+                    continue;
+
+                if (string.Equals(childView.NodeId, _asset.rootNodeId, StringComparison.Ordinal))
+                    continue;
+
+                if (HasEdge(parentView.NodeId, childView.NodeId))
+                    continue;
+
+                if (WouldCreateCycle(parentView.NodeId, childView.NodeId))
                     continue;
 
                 compatible.Add(port);
@@ -455,15 +457,37 @@ namespace GGemCo2DAiBtEditor
             if (edge.output?.node is not BtNodeView parent) { reason = "Invalid edge: parent missing."; return false; }
             if (edge.input?.node is not BtNodeView child) { reason = "Invalid edge: child missing."; return false; }
 
-            if (!CanConnect(parent.NodeId, child.NodeId, out reason))
-                return false;
-
             var p = _asset.FindNode(parent.NodeId);
             var c = _asset.FindNode(child.NodeId);
             if (p == null) { reason = "Invalid edge: parent node not found."; return false; }
             if (c == null) { reason = "Invalid edge: child node not found."; return false; }
 
-            // Decorator는 자식 1개만 유지
+            if (string.Equals(child.NodeId, _asset.rootNodeId, StringComparison.Ordinal))
+            {
+                reason = "Root node cannot have any parent.";
+                return false;
+            }
+
+            // Condition/Action은 자식 연결 금지
+            if (p.kind == BtNodeKind.Condition || p.kind == BtNodeKind.Action)
+            {
+                reason = "Condition/Action nodes cannot have children.";
+                return false;
+            }
+
+            if (HasEdge(parent.NodeId, child.NodeId))
+            {
+                reason = "Duplicate edge is not allowed.";
+                return false;
+            }
+
+            if (WouldCreateCycle(parent.NodeId, child.NodeId))
+            {
+                reason = "This connection would create a cycle.";
+                return false;
+            }
+
+            // Decorator는 자식 1개만
             if (p.kind == BtNodeKind.Decorator)
             {
                 p.children.Clear();
@@ -475,22 +499,60 @@ namespace GGemCo2DAiBtEditor
                 }
             }
 
-            // Single-parent 노드는 기존 부모 연결을 모두 해제한다.
-            if (!BtNodeParentPolicy.SupportsMultipleParents(c))
-                RemoveIncomingReferences(child.NodeId, exceptParentNodeId: parent.NodeId);
-
             if (!p.children.Contains(child.NodeId))
                 p.children.Add(child.NodeId);
 
             if (p.typeId == BtTypeIds.Composite.RandomWeighted)
                 BtEditorParamUtility.EnsureParams(p, _asset);
 
-            reason = BtNodeParentPolicy.SupportsMultipleParents(c)
-                ? "Edge created. Multi-parent connection applied."
-                : "Edge created.";
+            reason = "Edge created.";
             return true;
         }
 
+
+        private bool HasEdge(string parentNodeId, string childNodeId)
+        {
+            if (_asset == null || string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId))
+                return false;
+
+            var parent = _asset.FindNode(parentNodeId);
+            return parent != null && parent.children != null && parent.children.Contains(childNodeId);
+        }
+
+        private bool WouldCreateCycle(string parentNodeId, string childNodeId)
+        {
+            if (_asset == null || string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId))
+                return false;
+            if (string.Equals(parentNodeId, childNodeId, StringComparison.Ordinal))
+                return true;
+
+            var stack = new Stack<string>();
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            stack.Push(childNodeId);
+
+            while (stack.Count > 0)
+            {
+                string current = stack.Pop();
+                if (!visited.Add(current))
+                    continue;
+
+                if (string.Equals(current, parentNodeId, StringComparison.Ordinal))
+                    return true;
+
+                var node = _asset.FindNode(current);
+                if (node?.children == null)
+                    continue;
+
+                for (int i = 0; i < node.children.Count; i++)
+                {
+                    var next = node.children[i];
+                    if (!string.IsNullOrEmpty(next))
+                        stack.Push(next);
+                }
+            }
+
+            return false;
+        }
         private void RemoveEdgeFromAsset(Edge edge)
         {
             if (edge.output?.node is not BtNodeView parent) return;
@@ -503,149 +565,6 @@ namespace GGemCo2DAiBtEditor
 
             if (p.typeId == BtTypeIds.Composite.RandomWeighted)
                 BtEditorParamUtility.EnsureParams(p, _asset);
-        }
-
-        private bool CanConnect(string parentNodeId, string childNodeId, out string reason)
-        {
-            reason = "Edge created.";
-
-            if (_asset == null)
-            {
-                reason = "Tree asset is not assigned.";
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId))
-            {
-                reason = "Invalid edge: parent or child node id is empty.";
-                return false;
-            }
-
-            if (string.Equals(parentNodeId, childNodeId, StringComparison.Ordinal))
-            {
-                reason = "A node cannot connect to itself.";
-                return false;
-            }
-
-            var parent = _asset.FindNode(parentNodeId);
-            var child = _asset.FindNode(childNodeId);
-            if (parent == null)
-            {
-                reason = "Invalid edge: parent node not found.";
-                return false;
-            }
-            if (child == null)
-            {
-                reason = "Invalid edge: child node not found.";
-                return false;
-            }
-
-            if (parent.kind == BtNodeKind.Condition || parent.kind == BtNodeKind.Action)
-            {
-                reason = "Condition/Action nodes cannot have children.";
-                return false;
-            }
-
-            if (parent.kind == BtNodeKind.Decorator && parent.children != null && parent.children.Count > 0 &&
-                !parent.children.Contains(childNodeId))
-            {
-                // Decorator는 기존 연결을 교체하므로 허용한다.
-            }
-
-            if (parent.children != null && parent.children.Contains(childNodeId))
-            {
-                reason = "This parent is already connected to the child.";
-                return false;
-            }
-
-            int parentCount = GetParentCount(childNodeId, exceptParentNodeId: parentNodeId);
-            int maxParentCount = BtNodeParentPolicy.GetMaxParentCount(child);
-            if (maxParentCount >= 0 && parentCount >= maxParentCount)
-            {
-                reason = BtNodeParentPolicy.GetMultipleParentsBlockedReason(child);
-                return false;
-            }
-
-            if (WouldCreateCycle(parentNodeId, childNodeId))
-            {
-                reason = "This connection would create a cycle.";
-                return false;
-            }
-
-            return true;
-        }
-
-        private int GetParentCount(string childNodeId, string exceptParentNodeId = null)
-        {
-            if (_asset?.nodes == null || string.IsNullOrEmpty(childNodeId))
-                return 0;
-
-            int count = 0;
-            foreach (var node in _asset.nodes)
-            {
-                if (node == null || node.children == null)
-                    continue;
-                if (!string.IsNullOrEmpty(exceptParentNodeId) && string.Equals(node.id, exceptParentNodeId, StringComparison.Ordinal))
-                    continue;
-                if (node.children.Contains(childNodeId))
-                    count++;
-            }
-
-            return count;
-        }
-
-        private void RemoveIncomingReferences(string childNodeId, string exceptParentNodeId = null)
-        {
-            if (_asset?.nodes == null || string.IsNullOrEmpty(childNodeId))
-                return;
-
-            foreach (var node in _asset.nodes)
-            {
-                if (node == null || node.children == null)
-                    continue;
-                if (!string.IsNullOrEmpty(exceptParentNodeId) && string.Equals(node.id, exceptParentNodeId, StringComparison.Ordinal))
-                    continue;
-
-                if (node.children.RemoveAll(x => string.Equals(x, childNodeId, StringComparison.Ordinal)) > 0 &&
-                    node.typeId == BtTypeIds.Composite.RandomWeighted)
-                {
-                    BtEditorParamUtility.EnsureParams(node, _asset);
-                }
-            }
-        }
-
-        private bool WouldCreateCycle(string parentNodeId, string childNodeId)
-        {
-            if (string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId) || _asset?.nodes == null)
-                return false;
-
-            var stack = new Stack<string>();
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            stack.Push(childNodeId);
-
-            while (stack.Count > 0)
-            {
-                var currentId = stack.Pop();
-                if (!visited.Add(currentId))
-                    continue;
-
-                if (string.Equals(currentId, parentNodeId, StringComparison.Ordinal))
-                    return true;
-
-                var current = _asset.FindNode(currentId);
-                if (current?.children == null)
-                    continue;
-
-                for (int i = 0; i < current.children.Count; i++)
-                {
-                    var nextId = current.children[i];
-                    if (string.IsNullOrEmpty(nextId))
-                        continue;
-                    stack.Push(nextId);
-                }
-            }
-
-            return false;
         }
 
         public void ApplyDebug(MonsterBtRunner runner)

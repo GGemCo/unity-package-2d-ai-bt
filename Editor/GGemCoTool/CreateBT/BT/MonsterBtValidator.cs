@@ -19,10 +19,10 @@ namespace GGemCo2DAiBtEditor
 
             public Issue(Severity severity, string code, string message, string nodeId = null)
             {
-                this.Severity = severity;
-                this.Code = code;
-                this.Message = message;
-                this.NodeId = nodeId;
+                Severity = severity;
+                Code = code;
+                Message = message;
+                NodeId = nodeId;
             }
         }
 
@@ -58,10 +58,10 @@ namespace GGemCo2DAiBtEditor
                 issues.Add(new Issue(Severity.Error, "BT004", $"Root node not found: {asset.rootNodeId}", asset.rootNodeId));
 
             var incomingCount = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var id in nodeById.Keys)
-                incomingCount[id] = 0;
+            foreach (var nodeId in nodeById.Keys)
+                incomingCount[nodeId] = 0;
 
-            // children rule + missing reference
+            // children rule + missing reference + incoming count
             foreach (var kv in nodeById)
             {
                 var n = kv.Value;
@@ -84,6 +84,8 @@ namespace GGemCo2DAiBtEditor
                 }
 
                 if (n.children == null) continue;
+
+                var uniqueChildren = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var childId in n.children)
                 {
                     if (string.IsNullOrEmpty(childId))
@@ -96,6 +98,11 @@ namespace GGemCo2DAiBtEditor
                         issues.Add(new Issue(Severity.Error, "BT021", $"Child node not found: {childId}", n.id));
                         continue;
                     }
+                    if (!uniqueChildren.Add(childId))
+                    {
+                        issues.Add(new Issue(Severity.Error, "BT022", $"Duplicate child connection: {childId}", n.id));
+                        continue;
+                    }
 
                     incomingCount[childId] = incomingCount.TryGetValue(childId, out var count) ? count + 1 : 1;
                 }
@@ -103,34 +110,27 @@ namespace GGemCo2DAiBtEditor
 
             foreach (var kv in nodeById)
             {
-                var node = kv.Value;
-                incomingCount.TryGetValue(node.id, out var count);
+                string nodeId = kv.Key;
+                int incoming = incomingCount.GetValueOrDefault(nodeId, 0);
 
-                if (string.Equals(node.id, asset.rootNodeId, StringComparison.Ordinal))
+                if (string.Equals(nodeId, asset.rootNodeId, StringComparison.Ordinal))
                 {
-                    if (count > 0)
-                        issues.Add(new Issue(Severity.Error, "BT040", "Root node must not have any parent.", node.id));
-                    continue;
+                    if (incoming > 0)
+                        issues.Add(new Issue(Severity.Error, "BT040", "Root node must not have any parent.", nodeId));
                 }
-
-                if (count == 0)
-                    issues.Add(new Issue(Severity.Warning, "BT041", "Node is not reachable from any parent.", node.id));
-
-                int maxParentCount = BtNodeParentPolicy.GetMaxParentCount(node);
-                if (maxParentCount >= 0 && count > maxParentCount)
+                else if (incoming == 0)
                 {
-                    string reason = BtNodeParentPolicy.GetMultipleParentsBlockedReason(node);
-                    issues.Add(new Issue(Severity.Error, "BT042", $"Parent count exceeded ({count}). {reason}", node.id));
+                    issues.Add(new Issue(Severity.Warning, "BT041", "Orphan node detected. It is not reachable from any parent.", nodeId));
                 }
             }
 
-            // cycle detection (all connected/unconnected graphs)
+            // cycle detection (DFS) - root 기준뿐 아니라 미연결 서브그래프도 모두 검사한다.
             var visited = new HashSet<string>(StringComparer.Ordinal);
             var stack = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var id in nodeById.Keys)
+            foreach (var nodeId in nodeById.Keys)
             {
-                if (!visited.Contains(id))
-                    DfsDetectCycle(id, nodeById, visited, stack, issues);
+                if (!visited.Contains(nodeId))
+                    DfsDetectCycle(nodeId, nodeById, visited, stack, issues);
             }
 
             return issues;

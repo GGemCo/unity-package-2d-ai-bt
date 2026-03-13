@@ -31,7 +31,7 @@ namespace GGemCo2DAiBtEditor
 
             ApplyRecordToView(record);
 
-            // Input: 노드 정책에 따라 Single/Multi 허용
+            // Input: 런타임 execution key 분리 지원 이후에는 다중 부모 연결을 허용한다.
             var inputCapacity = BtNodeParentPolicy.SupportsMultipleParents(record) ? Port.Capacity.Multi : Port.Capacity.Single;
             InPort = InstantiatePort(Orientation.Horizontal, Direction.Input, inputCapacity, typeof(bool));
             InPort.portName = "";

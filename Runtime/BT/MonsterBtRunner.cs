@@ -315,7 +315,7 @@ namespace GGemCo2DAiBt
             try
             {
                 _isExecuting = true;
-                rootStatus = ExecuteNode(_treeAsset.rootNodeId, ctx, depth: 0);
+                rootStatus = ExecuteNode(_treeAsset.rootNodeId, ctx, depth: 0, executionKey: _treeAsset.rootNodeId);
             }
             finally
             {
@@ -330,7 +330,7 @@ namespace GGemCo2DAiBt
             }
         }
 
-        private BtStatus ExecuteNode(string nodeId, BtContext ctx, int depth)
+        private BtStatus ExecuteNode(string nodeId, BtContext ctx, int depth, string executionKey)
         {
             if (depth > 64) return BtStatus.Failure; // 순환/과도한 깊이 방어
             if (!_nodeById.TryGetValue(nodeId, out var node) || node == null) return BtStatus.Failure;
@@ -340,10 +340,10 @@ namespace GGemCo2DAiBt
 
             BtStatus status = node.kind switch
             {
-                BtNodeKind.Composite => ExecuteComposite(node, ctx, depth),
-                BtNodeKind.Decorator => ExecuteDecorator(node, ctx, depth),
+                BtNodeKind.Composite => ExecuteComposite(node, ctx, depth, executionKey),
+                BtNodeKind.Decorator => ExecuteDecorator(node, ctx, depth, executionKey),
                 BtNodeKind.Condition => ExecuteCondition(node, ctx),
-                BtNodeKind.Action => ExecuteAction(node, ctx),
+                BtNodeKind.Action => ExecuteAction(node, ctx, executionKey),
                 _ => BtStatus.Failure,
             };
 
@@ -364,6 +364,16 @@ namespace GGemCo2DAiBt
             return status;
         }
 
+        private static string BuildChildExecutionKey(string parentExecutionKey, string childNodeId, int childIndex)
+        {
+            if (string.IsNullOrEmpty(childNodeId))
+                return parentExecutionKey ?? string.Empty;
+
+            if (string.IsNullOrEmpty(parentExecutionKey))
+                return childNodeId;
+
+            return $"{parentExecutionKey}/{childNodeId}[{childIndex}]";
+        }
 
         private bool CanRunThisTick()
         {
@@ -448,35 +458,16 @@ namespace GGemCo2DAiBt
             nodeState.LastStatus = BtStatus.Failure;
         }
 
-        private void ResetSubtreeRuntime(string nodeId)
+        private void ResetSubtreeRuntime(string executionKey)
         {
-            if (string.IsNullOrEmpty(nodeId) || _runtime == null)
+            if (string.IsNullOrEmpty(executionKey) || _runtime == null)
                 return;
 
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            ResetSubtreeRuntimeRecursive(nodeId, includeSelf: false, visited);
-        }
-
-        private void ResetSubtreeRuntimeRecursive(string nodeId, bool includeSelf, HashSet<string> visited)
-        {
-            if (string.IsNullOrEmpty(nodeId) || visited == null || !visited.Add(nodeId))
-                return;
-
-            if (includeSelf)
-            {
-                _runtime.NodeStates.Remove(nodeId);
-                _runtime.Timeouts.Remove(nodeId);
-            }
-
-            if (!_nodeById.TryGetValue(nodeId, out var node) || node?.children == null)
-                return;
-
-            for (int i = 0; i < node.children.Count; i++)
-                ResetSubtreeRuntimeRecursive(node.children[i], includeSelf: true, visited);
+            _runtime.RemoveExecutionScope(executionKey, includeSelf: false);
         }
 
         #region Composite
-        private BtStatus ExecuteComposite(BtNodeRecord node, BtContext ctx, int depth)
+        private BtStatus ExecuteComposite(BtNodeRecord node, BtContext ctx, int depth, string executionKey)
         {
             if (node.children == null || node.children.Count == 0) return BtStatus.Failure;
 
@@ -484,12 +475,12 @@ namespace GGemCo2DAiBt
             {
                 case BtTypeIds.Composite.Selector:
                 {
-                    var nodeState = ctx.Runtime.GetOrCreateNodeState(node.id);
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(executionKey, node.id);
                     int startIndex = Mathf.Clamp(nodeState.RunningChildIndex, 0, node.children.Count - 1);
 
                     for (int i = startIndex; i < node.children.Count; i++)
                     {
-                        var st = ExecuteNode(node.children[i], ctx, depth + 1);
+                        var st = ExecuteNode(node.children[i], ctx, depth + 1, BuildChildExecutionKey(executionKey, node.children[i], i));
                         if (_breakTriggeredThisTick)
                         {
                             AddEvent(node.id, BtDebugEventKind.Composite, "Selector", st, BtDebugReason.BreakpointMatched, $"break after child[{i}] => {st}");
@@ -520,12 +511,12 @@ namespace GGemCo2DAiBt
 
                 case BtTypeIds.Composite.Sequence:
                 {
-                    var nodeState = ctx.Runtime.GetOrCreateNodeState(node.id);
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(executionKey, node.id);
                     int startIndex = Mathf.Clamp(nodeState.RunningChildIndex, 0, node.children.Count - 1);
 
                     for (int i = startIndex; i < node.children.Count; i++)
                     {
-                        var st = ExecuteNode(node.children[i], ctx, depth + 1);
+                        var st = ExecuteNode(node.children[i], ctx, depth + 1, BuildChildExecutionKey(executionKey, node.children[i], i));
                         if (_breakTriggeredThisTick)
                         {
                             AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", st, BtDebugReason.BreakpointMatched, $"break after child[{i}] => {st}");
@@ -545,13 +536,13 @@ namespace GGemCo2DAiBt
                         }
 
                         ResetCompositeState(nodeState);
-                        ResetSubtreeRuntime(node.id);
+                        ResetSubtreeRuntime(executionKey);
                         AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", BtStatus.Failure, BtDebugReason.None, $"child[{i}] => Failure");
                         return BtStatus.Failure;
                     }
 
                     ResetCompositeState(nodeState);
-                    ResetSubtreeRuntime(node.id);
+                    ResetSubtreeRuntime(executionKey);
                     AddEvent(node.id, BtDebugEventKind.Composite, "Sequence", BtStatus.Success, BtDebugReason.None, $"all {node.children.Count} children succeeded (startIndex={startIndex})");
                     return BtStatus.Success;
                 }
@@ -567,7 +558,7 @@ namespace GGemCo2DAiBt
                     }
 
                     AddEvent(node.id, BtDebugEventKind.Composite, "RandomWeighted", BtStatus.Running, BtDebugReason.None, $"picked child[{pick}] / childCount={node.children.Count}");
-                    var pickedStatus = ExecuteNode(node.children[pick], ctx, depth + 1);
+                    var pickedStatus = ExecuteNode(node.children[pick], ctx, depth + 1, BuildChildExecutionKey(executionKey, node.children[pick], pick));
                     return pickedStatus;
                 }
 
@@ -578,7 +569,7 @@ namespace GGemCo2DAiBt
         #endregion
 
         #region Decorator
-        private BtStatus ExecuteDecorator(BtNodeRecord node, BtContext ctx, int depth)
+        private BtStatus ExecuteDecorator(BtNodeRecord node, BtContext ctx, int depth, string executionKey)
         {
             if (node.children == null || node.children.Count != 1) return BtStatus.Failure;
             string childId = node.children[0];
@@ -591,7 +582,7 @@ namespace GGemCo2DAiBt
                     float seconds = ctx.GetFloatParam(node, "sec", fallback: 0f);
                     if (string.IsNullOrEmpty(key) || seconds <= 0f)
                     {
-                        var bypass = ExecuteNode(childId, ctx, depth + 1);
+                        var bypass = ExecuteNode(childId, ctx, depth + 1, BuildChildExecutionKey(executionKey, childId, 0));
                         AddEvent(node.id, BtDebugEventKind.Decorator, "Cooldown", bypass, BtDebugReason.InvalidParameter, $"bypass key={key}, sec={seconds:0.###}");
                         return bypass;
                     }
@@ -602,7 +593,7 @@ namespace GGemCo2DAiBt
                         return BtStatus.Failure;
                     }
 
-                    var st = ExecuteNode(childId, ctx, depth + 1);
+                    var st = ExecuteNode(childId, ctx, depth + 1, BuildChildExecutionKey(executionKey, childId, 0));
                     if (_breakTriggeredThisTick)
                     {
                         AddEvent(node.id, BtDebugEventKind.Decorator, "Cooldown", st, BtDebugReason.BreakpointMatched, $"break after child => {st}, key={key}");
@@ -619,25 +610,25 @@ namespace GGemCo2DAiBt
                     float seconds = ctx.GetFloatParam(node, "sec", fallback: 0f);
                     if (seconds <= 0f)
                     {
-                        var bypass = ExecuteNode(childId, ctx, depth + 1);
+                        var bypass = ExecuteNode(childId, ctx, depth + 1, BuildChildExecutionKey(executionKey, childId, 0));
                         AddEvent(node.id, BtDebugEventKind.Decorator, "Timeout", bypass, BtDebugReason.InvalidParameter, $"bypass sec={seconds:0.###}");
                         return bypass;
                     }
 
-                    if (ctx.IsTimeoutExceeded(node.id, seconds))
+                    if (ctx.IsTimeoutExceeded(executionKey, seconds))
                     {
                         AddEvent(node.id, BtDebugEventKind.Decorator, "Timeout", BtStatus.Failure, BtDebugReason.TimeoutExceeded, $"sec={seconds:0.###}");
                         return BtStatus.Failure;
                     }
 
-                    var st = ExecuteNode(childId, ctx, depth + 1);
+                    var st = ExecuteNode(childId, ctx, depth + 1, BuildChildExecutionKey(executionKey, childId, 0));
                     if (_breakTriggeredThisTick)
                     {
                         AddEvent(node.id, BtDebugEventKind.Decorator, "Timeout", st, BtDebugReason.BreakpointMatched, $"break after child => {st}, sec={seconds:0.###}");
                         return st;
                     }
                     if (st == BtStatus.Success || st == BtStatus.Failure)
-                        ctx.ResetTimeout(node.id);
+                        ctx.ResetTimeout(executionKey);
                     AddEvent(node.id, BtDebugEventKind.Decorator, "Timeout", st, BtDebugReason.None, $"sec={seconds:0.###}");
                     return st;
                 }
@@ -974,14 +965,14 @@ namespace GGemCo2DAiBt
         #endregion
 
         #region Action
-        private BtStatus ExecuteAction(BtNodeRecord node, BtContext ctx)
+        private BtStatus ExecuteAction(BtNodeRecord node, BtContext ctx, string executionKey)
         {
             switch (node.typeId)
             {
                 case BtTypeIds.Action.Wait:
                 {
                     float sec = ctx.GetFloatParam(node, "sec", 0.2f);
-                    var st = ctx.WaitForSeconds(node.id, sec);
+                    var st = ctx.WaitForSeconds(executionKey, sec);
                     AddEvent(node.id, BtDebugEventKind.Action, "Wait", st, BtDebugReason.None, $"sec={sec:0.###}");
                     return st;
                 }
@@ -1029,7 +1020,7 @@ namespace GGemCo2DAiBt
                         return BtStatus.Failure;
                     }
 
-                    var nodeState = ctx.Runtime.GetOrCreateNodeState(node.id);
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(executionKey, node.id);
 
                     if (!nodeState.SkillStarted)
                     {
@@ -1255,39 +1246,39 @@ namespace GGemCo2DAiBt
                 return BtStatus.Running;
             }
 
-            public BtStatus WaitForSeconds(string nodeId, float sec)
+            public BtStatus WaitForSeconds(string executionKey, float sec)
             {
                 if (sec <= 0f) return BtStatus.Success;
 
-                if (!Runtime.Timeouts.TryGetValue(nodeId, out float start))
+                if (!Runtime.Timeouts.TryGetValue(executionKey, out float start))
                 {
-                    Runtime.Timeouts[nodeId] = Time.time;
+                    Runtime.Timeouts[executionKey] = Time.time;
                     return BtStatus.Running;
                 }
 
                 if (Time.time - start >= sec)
                 {
-                    Runtime.Timeouts.Remove(nodeId);
+                    Runtime.Timeouts.Remove(executionKey);
                     return BtStatus.Success;
                 }
 
                 return BtStatus.Running;
             }
 
-            public bool IsTimeoutExceeded(string nodeId, float sec)
+            public bool IsTimeoutExceeded(string executionKey, float sec)
             {
                 if (sec <= 0f) return false;
-                if (!Runtime.Timeouts.TryGetValue(nodeId, out float start))
+                if (!Runtime.Timeouts.TryGetValue(executionKey, out float start))
                 {
-                    Runtime.Timeouts[nodeId] = Time.time;
+                    Runtime.Timeouts[executionKey] = Time.time;
                     return false;
                 }
                 return Time.time - start >= sec;
             }
 
-            public void ResetTimeout(string nodeId)
+            public void ResetTimeout(string executionKey)
             {
-                Runtime.Timeouts.Remove(nodeId);
+                Runtime.Timeouts.Remove(executionKey);
             }
 
             public bool IsCooldownReady(string key)
