@@ -2,6 +2,7 @@
 using GGemCo2DCore;
 using UnityEngine;
 using GGemCo2DSkill;
+using GGemCo2DSkillEditor;
 
 namespace GGemCo2DAiBt
 {
@@ -43,12 +44,30 @@ namespace GGemCo2DAiBt
             var skillExecutor = ch.gameObject.GetComponent<SkillExecutor>();
             if (skillExecutor == null) ch.gameObject.AddComponent<SkillExecutor>();
             
-            var monsterSkillDriverAdapter = ch.gameObject.GetComponent<MonsterSkillDriverAdapter>();
-            if (monsterSkillDriverAdapter == null)
+            // 캐릭터 유형에 맞는 스킬 드라이버를 연결합니다.
+            if (ch.IsPlayer())
             {
-                monsterSkillDriverAdapter = ch.gameObject.AddComponent<MonsterSkillDriverAdapter>();
+                var playerSkillDriverAdapter = ch.gameObject.GetComponent<PlayerSkillDriverAdapter>();
+                if (playerSkillDriverAdapter == null)
+                    playerSkillDriverAdapter = ch.gameObject.AddComponent<PlayerSkillDriverAdapter>();
+
+                playerSkillDriverAdapter.SetSkillExecutor(skillExecutor);
             }
-            monsterSkillDriverAdapter.SetSkillExecutor(skillExecutor);
+            else if (ch.IsMonster())
+            {
+                var monsterSkillDriverAdapter = ch.gameObject.GetComponent<MonsterSkillDriverAdapter>();
+                if (monsterSkillDriverAdapter == null)
+                    monsterSkillDriverAdapter = ch.gameObject.AddComponent<MonsterSkillDriverAdapter>();
+                
+                monsterSkillDriverAdapter.SetSkillExecutor(skillExecutor);
+                
+                if (AddressableLoaderSettingsAiBt.Instance.aiBtSettings.EnableDebug)
+                {
+                    var skillDamageAreaGizmo = ch.gameObject.GetComponent<SkillDamageAreaGizmo>();
+                    if (skillDamageAreaGizmo == null)
+                        ch.gameObject.AddComponent<SkillDamageAreaGizmo>();
+                }
+            }
         }
 
         private Task OnCharacterSpawnedAsync(CharacterBase ch)
