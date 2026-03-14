@@ -151,21 +151,33 @@ namespace GGemCo2DAiBtEditor
                 _graphView?.PollSelectionChange();
             }).Every(50);
 
-            _inspectorRoot = new VisualElement
+            var inspectorScroll = new ScrollView(ScrollViewMode.Vertical)
             {
                 style =
                 {
                     width = 360,
                     flexShrink = 0,
+                    flexGrow = 0,
                     borderLeftWidth = 1,
-                    borderLeftColor = new Color(0,0,0,0.25f),
+                    borderLeftColor = new Color(0,0,0,0.25f)
+                }
+            };
+            inspectorScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            inspectorScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
+
+            _inspectorRoot = new VisualElement
+            {
+                style =
+                {
+                    flexGrow = 1,
                     paddingLeft = 10,
                     paddingRight = 10,
                     paddingTop = 8,
                     paddingBottom = 8
                 }
             };
-            body.Add(_inspectorRoot);
+            inspectorScroll.Add(_inspectorRoot);
+            body.Add(inspectorScroll);
 
             // Status
             _statusLabel = new Label { style = { paddingLeft = 6, paddingTop = 3, paddingBottom = 3 } };
@@ -830,7 +842,19 @@ namespace GGemCo2DAiBtEditor
                 }
             }
 
-            fold.Add(body);
+            var debugScroll = new ScrollView(ScrollViewMode.Vertical)
+            {
+                style =
+                {
+                    maxHeight = 320,
+                    marginTop = 4
+                }
+            };
+            debugScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            debugScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
+            debugScroll.Add(body);
+
+            fold.Add(debugScroll);
             return fold;
         }
 
