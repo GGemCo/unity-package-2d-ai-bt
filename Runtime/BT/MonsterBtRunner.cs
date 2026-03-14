@@ -23,6 +23,7 @@ namespace GGemCo2DAiBt
         // 0 이면 Update 프레임마다 평가한다. 0보다 크면 해당 Hz로 평가한다.
         private float _tickRateHz;
 
+        private bool _enableDebug;
         private bool _enableDebugLog;
         // 디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.
         private bool _enableDebugTrace;
@@ -226,12 +227,19 @@ namespace GGemCo2DAiBt
             }
             
             _tickRateHz = aiBtSettings.tickRateHz;
-            _enableDebugLog = aiBtSettings.EnableDebugLog;
+            _enableDebug = aiBtSettings.EnableDebug;
+            _enableDebugLog = aiBtSettings.enableDebugLog;
             _enableDebugTrace = aiBtSettings.enableDebugTrace;
             _debugTraceCapacity = aiBtSettings.debugTraceCapacity;
             _debugMetricCapacity = aiBtSettings.debugMetricCapacity;
             _debugHistoryCapacity = aiBtSettings.debugHistoryCapacity;
             _enableDebugBreakpoints = aiBtSettings.enableDebugBreakpoints;
+            if (!_enableDebug)
+            {
+                _enableDebugLog = false;
+                _enableDebugTrace = false;
+                _enableDebugBreakpoints = false;
+            }
         }
 
         private void OnEnable()

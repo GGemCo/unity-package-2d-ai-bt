@@ -15,12 +15,15 @@ namespace GGemCo2DAiBt
         public float tickRateHz = 1f;
 
         [Header("Debug")]
-        [SerializeField, DebugOption("플레이어 상태 로그 출력")]
-        private bool enableDebugLog;
-        public bool EnableDebugLog => DebugOptionRuntimeUtility.Resolve(enableDebugLog);
+        [SerializeField, DebugOption("BT 디버그 사용여부. False일 경우, 아래 디버그 항목들은 모두 False 처리 한다.")]
+        private bool enableDebug;
+        public bool EnableDebug => DebugOptionRuntimeUtility.Resolve(enableDebug);
+
+        [Tooltip("디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.")]
+        public bool enableDebugLog = false;
         
         [Tooltip("디자이너/디버그 창에서 실행 노드 하이라이트를 위해 트레이스를 수집한다.")]
-        public bool enableDebugTrace = true;
+        public bool enableDebugTrace = false;
         [Min(16), Tooltip("디버그 트레이스의 최대 방문 노드 기록 개수(한 틱 기준).")]
         public int debugTraceCapacity = 256;
         [Min(16), Tooltip("디버그 메트릭의 최대 기록 개수(한 틱 기준).")]
@@ -28,7 +31,7 @@ namespace GGemCo2DAiBt
         [Min(4), Tooltip("에디터 디버그 타임라인용 최근 프레임 보관 개수.")]
         public int debugHistoryCapacity = 32;
         [Tooltip("디버그 브레이크포인트 사용 여부.")]
-        public bool enableDebugBreakpoints = true;
+        public bool enableDebugBreakpoints = false;
         
         /// <summary>
         /// 기존 값이 비어있을 때만 기본값을 설정
