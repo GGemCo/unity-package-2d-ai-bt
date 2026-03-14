@@ -57,11 +57,7 @@ namespace GGemCo2DAiBtEditor
             if (!string.IsNullOrEmpty(asset.rootNodeId) && !nodeById.ContainsKey(asset.rootNodeId))
                 issues.Add(new Issue(Severity.Error, "BT004", $"Root node not found: {asset.rootNodeId}", asset.rootNodeId));
 
-            var incomingCount = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var nodeId in nodeById.Keys)
-                incomingCount[nodeId] = 0;
-
-            // children rule + missing reference + incoming count
+            // children rule + missing reference
             foreach (var kv in nodeById)
             {
                 var n = kv.Value;
@@ -84,8 +80,6 @@ namespace GGemCo2DAiBtEditor
                 }
 
                 if (n.children == null) continue;
-
-                var uniqueChildren = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var childId in n.children)
                 {
                     if (string.IsNullOrEmpty(childId))
@@ -94,43 +88,58 @@ namespace GGemCo2DAiBtEditor
                         continue;
                     }
                     if (!nodeById.ContainsKey(childId))
-                    {
                         issues.Add(new Issue(Severity.Error, "BT021", $"Child node not found: {childId}", n.id));
-                        continue;
-                    }
-                    if (!uniqueChildren.Add(childId))
-                    {
-                        issues.Add(new Issue(Severity.Error, "BT022", $"Duplicate child connection: {childId}", n.id));
-                        continue;
-                    }
+                }
+            }
 
-                    incomingCount[childId] = incomingCount.TryGetValue(childId, out var count) ? count + 1 : 1;
+            var incomingCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var id in nodeById.Keys)
+                incomingCounts[id] = 0;
+
+            foreach (var kv in nodeById)
+            {
+                var node = kv.Value;
+                if (node.children == null)
+                    continue;
+
+                for (int i = 0; i < node.children.Count; i++)
+                {
+                    var childId = node.children[i];
+                    if (string.IsNullOrEmpty(childId) || !incomingCounts.ContainsKey(childId))
+                        continue;
+
+                    incomingCounts[childId]++;
                 }
             }
 
             foreach (var kv in nodeById)
             {
-                string nodeId = kv.Key;
-                int incoming = incomingCount.GetValueOrDefault(nodeId, 0);
+                var node = kv.Value;
+                incomingCounts.TryGetValue(node.id, out int incoming);
 
-                if (string.Equals(nodeId, asset.rootNodeId, StringComparison.Ordinal))
+                if (node.id == asset.rootNodeId)
                 {
                     if (incoming > 0)
-                        issues.Add(new Issue(Severity.Error, "BT040", "Root node must not have any parent.", nodeId));
+                        issues.Add(new Issue(Severity.Error, "BT040", "Root node must not have any parent.", node.id));
+                    continue;
                 }
-                else if (incoming == 0)
-                {
-                    issues.Add(new Issue(Severity.Warning, "BT041", "Orphan node detected. It is not reachable from any parent.", nodeId));
-                }
+
+                if (incoming == 0)
+                    issues.Add(new Issue(Severity.Warning, "BT041", "Node is not connected from the root graph.", node.id));
+
+                if (incoming > 1 && !BtNodeParentPolicy.SupportsMultipleParents(node))
+                    issues.Add(new Issue(Severity.Error, "BT042", $"Node does not allow multiple parents. incoming={incoming}", node.id));
             }
 
-            // cycle detection (DFS) - root 기준뿐 아니라 미연결 서브그래프도 모두 검사한다.
+            // cycle detection (DFS) : root 기준뿐 아니라 고립 서브그래프까지 전체 검사
             var visited = new HashSet<string>(StringComparer.Ordinal);
             var stack = new HashSet<string>(StringComparer.Ordinal);
             foreach (var nodeId in nodeById.Keys)
             {
-                if (!visited.Contains(nodeId))
-                    DfsDetectCycle(nodeId, nodeById, visited, stack, issues);
+                if (visited.Contains(nodeId))
+                    continue;
+
+                DfsDetectCycle(nodeId, nodeById, visited, stack, issues);
             }
 
             return issues;

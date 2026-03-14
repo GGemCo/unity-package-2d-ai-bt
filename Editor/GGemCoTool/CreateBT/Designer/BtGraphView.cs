@@ -249,35 +249,94 @@ namespace GGemCo2DAiBtEditor
         public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)
         {
             var compatible = new List<Port>();
-            if (_asset == null)
-                return compatible;
-
             foreach (var port in ports.ToList())
             {
                 if (port == startPort) continue;
                 if (port.node == startPort.node) continue;
                 if (port.direction == startPort.direction) continue;
-                if (startPort.node is not BtNodeView startNode) continue;
-                if (port.node is not BtNodeView otherNode) continue;
 
-                var parentView = startPort.direction == Direction.Output ? startNode : otherNode;
-                var childView = startPort.direction == Direction.Output ? otherNode : startNode;
-
-                if (parentView.OutPort == null || childView.InPort == null)
+                var outputNode = startPort.direction == Direction.Output ? startPort.node as BtNodeView : port.node as BtNodeView;
+                var inputNode = startPort.direction == Direction.Input ? startPort.node as BtNodeView : port.node as BtNodeView;
+                if (outputNode == null || inputNode == null)
                     continue;
 
-                if (string.Equals(childView.NodeId, _asset.rootNodeId, StringComparison.Ordinal))
+                if (_asset == null)
                     continue;
 
-                if (HasEdge(parentView.NodeId, childView.NodeId))
+                if (inputNode.NodeId == _asset.rootNodeId)
                     continue;
 
-                if (WouldCreateCycle(parentView.NodeId, childView.NodeId))
+                if (WouldCreateCycle(outputNode.NodeId, inputNode.NodeId))
+                    continue;
+
+                var childRecord = _asset.FindNode(inputNode.NodeId);
+                int parentCount = GetParentCount(inputNode.NodeId);
+                int maxParentCount = BtNodeParentPolicy.GetMaxParentCount(childRecord);
+                bool isAlreadyLinked = IsEdgeAlreadyLinked(outputNode.NodeId, inputNode.NodeId);
+                if (!isAlreadyLinked && maxParentCount >= 0 && parentCount >= maxParentCount)
                     continue;
 
                 compatible.Add(port);
             }
             return compatible;
+        }
+
+        private bool IsEdgeAlreadyLinked(string parentNodeId, string childNodeId)
+        {
+            var parent = _asset?.FindNode(parentNodeId);
+            return parent != null && parent.children.Contains(childNodeId);
+        }
+
+        private int GetParentCount(string childNodeId)
+        {
+            if (_asset == null || string.IsNullOrEmpty(childNodeId))
+                return 0;
+
+            int count = 0;
+            foreach (var node in _asset.nodes)
+            {
+                if (node?.children == null)
+                    continue;
+                for (int i = 0; i < node.children.Count; i++)
+                {
+                    if (node.children[i] == childNodeId)
+                        count++;
+                }
+            }
+            return count;
+        }
+
+        private bool WouldCreateCycle(string parentNodeId, string childNodeId)
+        {
+            if (string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId) || _asset == null)
+                return false;
+            if (parentNodeId == childNodeId)
+                return true;
+
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            return WouldReachNode(childNodeId, parentNodeId, visited);
+        }
+
+        private bool WouldReachNode(string currentNodeId, string targetNodeId, HashSet<string> visited)
+        {
+            if (string.IsNullOrEmpty(currentNodeId) || string.IsNullOrEmpty(targetNodeId) || visited == null)
+                return false;
+            if (!visited.Add(currentNodeId))
+                return false;
+            if (currentNodeId == targetNodeId)
+                return true;
+
+            var node = _asset?.FindNode(currentNodeId);
+            if (node?.children == null)
+                return false;
+
+            for (int i = 0; i < node.children.Count; i++)
+            {
+                if (WouldReachNode(node.children[i], targetNodeId, visited))
+                    return true;
+            }
+
+            return false;
         }
 
         public void PopulateFromAsset()
@@ -462,9 +521,9 @@ namespace GGemCo2DAiBtEditor
             if (p == null) { reason = "Invalid edge: parent node not found."; return false; }
             if (c == null) { reason = "Invalid edge: child node not found."; return false; }
 
-            if (string.Equals(child.NodeId, _asset.rootNodeId, StringComparison.Ordinal))
+            if (child.NodeId == _asset.rootNodeId)
             {
-                reason = "Root node cannot have any parent.";
+                reason = "Root node cannot have parents.";
                 return false;
             }
 
@@ -475,15 +534,15 @@ namespace GGemCo2DAiBtEditor
                 return false;
             }
 
-            if (HasEdge(parent.NodeId, child.NodeId))
-            {
-                reason = "Duplicate edge is not allowed.";
-                return false;
-            }
-
             if (WouldCreateCycle(parent.NodeId, child.NodeId))
             {
                 reason = "This connection would create a cycle.";
+                return false;
+            }
+
+            if (IsEdgeAlreadyLinked(parent.NodeId, child.NodeId))
+            {
+                reason = "This edge already exists.";
                 return false;
             }
 
@@ -499,60 +558,24 @@ namespace GGemCo2DAiBtEditor
                 }
             }
 
-            if (!p.children.Contains(child.NodeId))
-                p.children.Add(child.NodeId);
+            int maxParentCount = BtNodeParentPolicy.GetMaxParentCount(c);
+            int parentCount = GetParentCount(child.NodeId);
+            if (maxParentCount >= 0 && parentCount >= maxParentCount)
+            {
+                reason = BtNodeParentPolicy.GetMultipleParentsBlockedReason(c);
+                if (string.IsNullOrEmpty(reason))
+                    reason = $"This node allows up to {maxParentCount} parent(s).";
+                return false;
+            }
+
+            p.children.Add(child.NodeId);
 
             if (p.typeId == BtTypeIds.Composite.RandomWeighted)
                 BtEditorParamUtility.EnsureParams(p, _asset);
 
-            reason = "Edge created.";
             return true;
         }
 
-
-        private bool HasEdge(string parentNodeId, string childNodeId)
-        {
-            if (_asset == null || string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId))
-                return false;
-
-            var parent = _asset.FindNode(parentNodeId);
-            return parent != null && parent.children != null && parent.children.Contains(childNodeId);
-        }
-
-        private bool WouldCreateCycle(string parentNodeId, string childNodeId)
-        {
-            if (_asset == null || string.IsNullOrEmpty(parentNodeId) || string.IsNullOrEmpty(childNodeId))
-                return false;
-            if (string.Equals(parentNodeId, childNodeId, StringComparison.Ordinal))
-                return true;
-
-            var stack = new Stack<string>();
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            stack.Push(childNodeId);
-
-            while (stack.Count > 0)
-            {
-                string current = stack.Pop();
-                if (!visited.Add(current))
-                    continue;
-
-                if (string.Equals(current, parentNodeId, StringComparison.Ordinal))
-                    return true;
-
-                var node = _asset.FindNode(current);
-                if (node?.children == null)
-                    continue;
-
-                for (int i = 0; i < node.children.Count; i++)
-                {
-                    var next = node.children[i];
-                    if (!string.IsNullOrEmpty(next))
-                        stack.Push(next);
-                }
-            }
-
-            return false;
-        }
         private void RemoveEdgeFromAsset(Edge edge)
         {
             if (edge.output?.node is not BtNodeView parent) return;
@@ -569,7 +592,6 @@ namespace GGemCo2DAiBtEditor
 
         public void ApplyDebug(MonsterBtRunner runner)
         {
-            // Reset
             foreach (var v in _views.Values)
             {
                 v.style.borderLeftWidth = 0;
@@ -593,67 +615,120 @@ namespace GGemCo2DAiBtEditor
             if (!EditorApplication.isPlaying)
                 return;
 
-            var visited = runner.DebugLastTick;
-            if (visited != null)
-            {
-                for (int i = 0; i < visited.Count; i++)
-                {
-                    var r = visited[i];
-                    if (string.IsNullOrEmpty(r.NodeId)) continue;
-                    if (!_views.TryGetValue(r.NodeId, out var v)) continue;
-
-                    v.style.borderLeftWidth = 4;
-                    v.style.borderLeftColor = r.Status switch
-                    {
-                        BtStatus.Success => new Color(0.2f, 0.8f, 0.2f, 1f),
-                        BtStatus.Failure => new Color(0.9f, 0.2f, 0.2f, 1f),
-                        BtStatus.Running => new Color(0.2f, 0.8f, 0.9f, 1f),
-                        _ => new Color(0.9f, 0.9f, 0.2f, 1f),
-                    };
-                }
-            }
-
             var frame = runner.DebugLastFrame;
-            if (frame != null)
+            if (frame == null)
+                return;
+
+            var visitGroups = frame.Visits
+                .Where(v => !string.IsNullOrEmpty(v.NodeId))
+                .GroupBy(v => v.NodeId)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+            foreach (var kv in visitGroups)
             {
-                foreach (var ev in frame.Events)
-                {
-                    if (string.IsNullOrEmpty(ev.NodeId))
-                        continue;
-                    if (!_views.TryGetValue(ev.NodeId, out var view))
-                        continue;
+                if (!_views.TryGetValue(kv.Key, out var view))
+                    continue;
 
-                    string badge = ev.Status.ToString();
-                    if (ev.Reason != BtDebugReason.None)
-                        badge += $"/{ev.Reason}";
-
-                    string tip = $"[{ev.Kind}] {ev.Title}\nStatus: {ev.Status}";
-                    if (ev.Reason != BtDebugReason.None)
-                        tip += $"\nReason: {ev.Reason}";
-                    if (!string.IsNullOrEmpty(ev.Summary))
-                        tip += $"\n{ev.Summary}";
-
-                    if (runner.TryGetBreakpoint(ev.NodeId, out var breakpoint))
-                        tip += $"\n\nBreakpoint: {BuildBreakpointTooltip(breakpoint)}";
-
-                    view.SetDebugInfo(badge, tip);
-                }
+                var status = AggregateStatus(kv.Value.Select(x => x.Status));
+                view.style.borderLeftWidth = 4;
+                view.style.borderLeftColor = GetStatusColor(status);
             }
 
-            var path = runner.DebugActivePath;
-            if (path != null)
+            var eventGroups = frame.Events
+                .Where(e => !string.IsNullOrEmpty(e.NodeId))
+                .GroupBy(e => e.NodeId)
+                .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+
+            foreach (var kv in eventGroups)
             {
-                for (int i = 0; i < path.Count; i++)
+                if (!_views.TryGetValue(kv.Key, out var view))
+                    continue;
+
+                var events = kv.Value;
+                int runningCount = events.Count(e => e.Status == BtStatus.Running);
+                int successCount = events.Count(e => e.Status == BtStatus.Success);
+                int failureCount = events.Count(e => e.Status == BtStatus.Failure);
+                int executionCount = events.Select(e => e.ExecutionKey).Where(x => !string.IsNullOrEmpty(x)).Distinct().Count();
+                if (executionCount <= 0)
+                    executionCount = 1;
+
+                string badge = runningCount > 0 ? $"Run x{executionCount}" : successCount > 0 && failureCount > 0 ? $"Mix x{executionCount}" : successCount > 0 ? $"Suc x{executionCount}" : failureCount > 0 ? $"Fail x{executionCount}" : $"Evt x{executionCount}";
+
+                var groupedByExecution = events
+                    .GroupBy(e => string.IsNullOrEmpty(e.ExecutionKey) ? e.NodeId : e.ExecutionKey)
+                    .OrderBy(g => g.Key)
+                    .ToList();
+
+                var lines = new List<string>();
+                foreach (var execution in groupedByExecution)
                 {
-                    var id = path[i];
+                    var last = execution.Last();
+                    string line = $"{execution.Key} => {last.Status}";
+                    if (last.Reason != BtDebugReason.None)
+                        line += $" / {last.Reason}";
+                    if (!string.IsNullOrEmpty(last.Summary))
+                        line += $" | {last.Summary}";
+                    lines.Add(line);
+                }
+
+                if (runner.TryGetBreakpoint(kv.Key, out var breakpoint))
+                    lines.Add($"Breakpoint: {BuildBreakpointTooltip(breakpoint)}");
+
+                view.SetDebugInfo(badge, string.Join("\n", lines));
+            }
+
+            var executionPath = runner.DebugActiveExecutionPath;
+            var nodePath = runner.DebugActivePath;
+            if (nodePath != null)
+            {
+                for (int i = 0; i < nodePath.Count; i++)
+                {
+                    var id = nodePath[i];
                     if (string.IsNullOrEmpty(id)) continue;
-                    if (!_views.TryGetValue(id, out var v)) continue;
+                    if (!_views.TryGetValue(id, out var view)) continue;
 
-                    v.style.borderRightWidth = 4;
-                    v.style.borderRightColor = new Color(1f, 0.75f, 0.2f, 1f);
-                    v.titleContainer.style.backgroundColor = new Color(1f, 1f, 1f, 0.12f);
+                    view.style.borderRightWidth = 4;
+                    view.style.borderRightColor = new Color(1f, 0.75f, 0.2f, 1f);
+                    view.titleContainer.style.backgroundColor = new Color(1f, 1f, 1f, 0.12f);
+
+                    var currentTip = view.tooltip ?? string.Empty;
+                    if (executionPath != null && i < executionPath.Count && !string.IsNullOrEmpty(executionPath[i]))
+                    {
+                        string activeLine = $"ActivePath: {executionPath[i]}";
+                        view.tooltip = string.IsNullOrEmpty(currentTip) ? activeLine : currentTip + "\n" + activeLine;
+                    }
                 }
             }
+        }
+
+        private static BtStatus AggregateStatus(IEnumerable<BtStatus> statuses)
+        {
+            bool hasRunning = false;
+            bool hasFailure = false;
+            bool hasSuccess = false;
+
+            foreach (var status in statuses)
+            {
+                if (status == BtStatus.Running) hasRunning = true;
+                else if (status == BtStatus.Failure) hasFailure = true;
+                else if (status == BtStatus.Success) hasSuccess = true;
+            }
+
+            if (hasRunning) return BtStatus.Running;
+            if (hasFailure) return BtStatus.Failure;
+            if (hasSuccess) return BtStatus.Success;
+            return BtStatus.Failure;
+        }
+
+        private static Color GetStatusColor(BtStatus status)
+        {
+            return status switch
+            {
+                BtStatus.Success => new Color(0.2f, 0.8f, 0.2f, 1f),
+                BtStatus.Failure => new Color(0.9f, 0.2f, 0.2f, 1f),
+                BtStatus.Running => new Color(0.2f, 0.8f, 0.9f, 1f),
+                _ => new Color(0.9f, 0.9f, 0.2f, 1f),
+            };
         }
 
         private static string BuildBreakpointTooltip(BtDebugBreakpoint breakpoint)

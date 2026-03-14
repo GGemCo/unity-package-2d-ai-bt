@@ -11,12 +11,14 @@ namespace GGemCo2DAiBt
     public struct BtDebugNodeResult
     {
         public string NodeId;
+        public string ExecutionKey;
         public BtStatus Status;
         public int Depth;
 
-        public BtDebugNodeResult(string nodeId, BtStatus status, int depth)
+        public BtDebugNodeResult(string nodeId, string executionKey, BtStatus status, int depth)
         {
             NodeId = nodeId;
+            ExecutionKey = executionKey;
             Status = status;
             Depth = depth;
         }
@@ -29,13 +31,15 @@ namespace GGemCo2DAiBt
     public struct BtDebugMetric
     {
         public string NodeId;
+        public string ExecutionKey;
         public string Key;
         public float Value;
         public string Text;
 
-        public BtDebugMetric(string nodeId, string key, float value, string text = null)
+        public BtDebugMetric(string nodeId, string executionKey, string key, float value, string text = null)
         {
             NodeId = nodeId;
+            ExecutionKey = executionKey;
             Key = key;
             Value = value;
             Text = text;
@@ -131,15 +135,17 @@ namespace GGemCo2DAiBt
     public struct BtDebugEvent
     {
         public string NodeId;
+        public string ExecutionKey;
         public BtDebugEventKind Kind;
         public string Title;
         public BtStatus Status;
         public BtDebugReason Reason;
         public string Summary;
 
-        public BtDebugEvent(string nodeId, BtDebugEventKind kind, string title, BtStatus status, BtDebugReason reason, string summary)
+        public BtDebugEvent(string nodeId, string executionKey, BtDebugEventKind kind, string title, BtStatus status, BtDebugReason reason, string summary)
         {
             NodeId = nodeId;
+            ExecutionKey = executionKey;
             Kind = kind;
             Title = title;
             Status = status;
@@ -159,8 +165,10 @@ namespace GGemCo2DAiBt
         public string RootNodeId;
         public BtStatus RootStatus;
         public string ActiveNodeId;
+        public string ActiveExecutionKey;
 
         public readonly List<string> ActivePath = new();
+        public readonly List<string> ActiveExecutionPath = new();
         public readonly List<BtDebugNodeResult> Visits = new();
         public readonly List<BtDebugMetric> Metrics = new();
         public readonly List<BtDebugEvent> Events = new();
@@ -172,7 +180,9 @@ namespace GGemCo2DAiBt
             RootNodeId = rootNodeId;
             RootStatus = BtStatus.Failure;
             ActiveNodeId = null;
+            ActiveExecutionKey = null;
             ActivePath.Clear();
+            ActiveExecutionPath.Clear();
             Visits.Clear();
             Metrics.Clear();
             Events.Clear();
@@ -186,7 +196,9 @@ namespace GGemCo2DAiBt
             clone.RootNodeId = RootNodeId;
             clone.RootStatus = RootStatus;
             clone.ActiveNodeId = ActiveNodeId;
+            clone.ActiveExecutionKey = ActiveExecutionKey;
             clone.ActivePath.AddRange(ActivePath);
+            clone.ActiveExecutionPath.AddRange(ActiveExecutionPath);
             clone.Visits.AddRange(Visits);
             clone.Metrics.AddRange(Metrics);
             clone.Events.AddRange(Events);

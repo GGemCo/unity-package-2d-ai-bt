@@ -709,10 +709,12 @@ namespace GGemCo2DAiBtEditor
             }
 
             fold.Add(new Label($"TickIndex: {frame.TickIndex} | Root: {frame.RootNodeId} | RootStatus: {frame.RootStatus}") { style = { opacity = 0.9f } });
-            fold.Add(new Label($"Active: {frame.ActiveNodeId ?? "-"} | Time: {frame.Time:0.###} | Freeze: {_runner.DebugFreeze}") { style = { opacity = 0.85f } });
+            fold.Add(new Label($"Active: {frame.ActiveNodeId ?? "-"} | ActiveKey: {frame.ActiveExecutionKey ?? "-"} | Time: {frame.Time:0.###} | Freeze: {_runner.DebugFreeze}") { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
 
             if (frame.ActivePath.Count > 0)
                 fold.Add(new Label($"Active Path: {string.Join(" -> ", frame.ActivePath)}") { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
+            if (frame.ActiveExecutionPath.Count > 0)
+                fold.Add(new Label($"Active Execution Path: {string.Join(" -> ", frame.ActiveExecutionPath)}") { style = { opacity = 0.8f, whiteSpace = WhiteSpace.Normal } });
 
             var nodeEvents = string.IsNullOrEmpty(nodeId)
                 ? frame.Events
@@ -724,6 +726,49 @@ namespace GGemCo2DAiBtEditor
 
             var body = new VisualElement { style = { marginTop = 6 } };
 
+            if (!string.IsNullOrEmpty(nodeId))
+            {
+                body.Add(new Label("Execution Instances") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 4 } });
+
+                var executionKeys = frame.Events
+                    .Where(e => e.NodeId == nodeId && !string.IsNullOrEmpty(e.ExecutionKey))
+                    .Select(e => e.ExecutionKey)
+                    .Distinct()
+                    .OrderBy(x => x)
+                    .ToList();
+
+                if (executionKeys.Count == 0)
+                {
+                    body.Add(new Label("No execution instances for selected node.") { style = { opacity = 0.75f } });
+                }
+                else
+                {
+                    foreach (var executionKey in executionKeys)
+                    {
+                        var lastEvent = frame.Events.LastOrDefault(e => e.NodeId == nodeId && e.ExecutionKey == executionKey);
+                        string line = $"{executionKey} => {lastEvent.Status}";
+                        if (lastEvent.Reason != BtDebugReason.None)
+                            line += $" ({lastEvent.Reason})";
+                        if (!string.IsNullOrEmpty(lastEvent.Summary))
+                            line += $" | {lastEvent.Summary}";
+                        body.Add(new Label(line) { style = { opacity = 0.92f, whiteSpace = WhiteSpace.Normal } });
+
+                        var executionMetrics = frame.Metrics.Where(m => m.NodeId == nodeId && m.ExecutionKey == executionKey).ToList();
+                        if (executionMetrics.Count > 0)
+                        {
+                            for (int i = 0; i < executionMetrics.Count; i++)
+                            {
+                                var metric = executionMetrics[i];
+                                string metricLine = $"    - {metric.Key}: {metric.Value:0.###}";
+                                if (!string.IsNullOrEmpty(metric.Text))
+                                    metricLine += $" ({metric.Text})";
+                                body.Add(new Label(metricLine) { style = { opacity = 0.8f, whiteSpace = WhiteSpace.Normal } });
+                            }
+                        }
+                    }
+                }
+            }
+
             body.Add(new Label("Events") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 4 } });
             if (nodeEvents == null || nodeEvents.Count == 0)
             {
@@ -734,6 +779,8 @@ namespace GGemCo2DAiBtEditor
                 foreach (var ev in nodeEvents)
                 {
                     string line = $"[{ev.Kind}] {ev.Title} => {ev.Status}";
+                    if (!string.IsNullOrEmpty(ev.ExecutionKey))
+                        line += $" | Key={ev.ExecutionKey}";
                     if (ev.Reason != BtDebugReason.None)
                         line += $" ({ev.Reason})";
                     if (!string.IsNullOrEmpty(ev.Summary))
@@ -752,6 +799,8 @@ namespace GGemCo2DAiBtEditor
                 foreach (var m in nodeMetrics)
                 {
                     string line = $"{m.Key}: {m.Value:0.###}";
+                    if (!string.IsNullOrEmpty(m.ExecutionKey))
+                        line += $" | Key={m.ExecutionKey}";
                     if (!string.IsNullOrEmpty(m.Text))
                         line += $" ({m.Text})";
                     body.Add(new Label(line) { style = { opacity = 0.9f } });
