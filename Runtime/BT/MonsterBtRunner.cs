@@ -344,6 +344,8 @@ namespace GGemCo2DAiBt
                 CompleteDebugFrame(rootStatus);
                 DebugTicked?.Invoke(this);
             }
+
+            ApplyPendingRestartRequest();
         }
 
         private BtStatus ExecuteNode(string nodeId, BtContext ctx, int depth, string executionKey)
@@ -486,6 +488,33 @@ namespace GGemCo2DAiBt
                 _runtime.NodeStates.Remove(keys[i]);
                 _runtime.Timeouts.Remove(keys[i]);
             }
+        }
+
+        private void ResetTreeRuntimeForRestart()
+        {
+            if (_runtime == null)
+                return;
+
+            _runtime.NodeStates.Clear();
+            _runtime.Timeouts.Clear();
+            _runtime.ClearRestartRequest();
+        }
+
+        private void ApplyPendingRestartRequest()
+        {
+            if (_runtime == null || !_runtime.RestartRequested)
+                return;
+
+            string summary = $"requestedBy={_runtime.RestartRequestedByNodeId}, executionKey={_runtime.RestartRequestedByExecutionKey}, reason={_runtime.RestartReason}";
+            AddEvent(_treeAsset != null ? _treeAsset.rootNodeId : null,
+                _treeAsset != null ? _treeAsset.rootNodeId : null,
+                BtDebugEventKind.System,
+                "Restart Root Applied",
+                BtStatus.Success,
+                BtDebugReason.RestartRequested,
+                summary);
+
+            ResetTreeRuntimeForRestart();
         }
 
         private List<string> ListExecutionScopeKeys(string executionKeyPrefix, bool includeSelf)
@@ -1212,6 +1241,13 @@ namespace GGemCo2DAiBt
                     return BtStatus.Failure;
                 }
 
+                case BtTypeIds.Action.RequestRestartRoot:
+                {
+                    string reason = ctx.GetStringParam(node, "reason", fallback: "Manual request");
+                    ctx.Runtime.RequestRestart(node.id, executionKey, reason);
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "RequestRestartRoot", BtStatus.Success, BtDebugReason.RestartRequested, reason);
+                    return BtStatus.Success;
+                }
                 case BtTypeIds.Action.ClearAggro:
                     ctx.Driver.RequestClearAggro();
                     AddEvent(node.id, executionKey, BtDebugEventKind.Action, "ClearAggro", BtStatus.Success, BtDebugReason.None, "RequestClearAggro()");

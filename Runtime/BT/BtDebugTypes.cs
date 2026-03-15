@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace GGemCo2DAiBt
@@ -77,6 +77,7 @@ namespace GGemCo2DAiBt
         ChildMissing,
         RandomPickFailed,
         UnknownType,
+        RestartRequested,
         BreakpointMatched,
     }
 

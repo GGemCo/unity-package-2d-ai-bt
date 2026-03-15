@@ -74,6 +74,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.AttackBasic", DisplayName = "Attack Basic" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkillAndWait", DisplayName = "Use Skill And Wait" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.RequestRestartRoot", DisplayName = "Request Restart Root" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ClearAggro", DisplayName = "Clear Aggro" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ResetSkillUseCount", DisplayName = "Reset Skill Use Count" },
         };
@@ -153,6 +154,10 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
                     new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
+                },
+                ["Action.RequestRestartRoot"] = new List<BtParamDef>
+                {
+                    new BtParamDef("reason", BtValueType.String, required: false, defaultValue: "Manual request"),
                 },
                 ["Action.ResetSkillUseCount"] = new List<BtParamDef>
                 {
