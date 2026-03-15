@@ -39,6 +39,7 @@ namespace GGemCo2DAiBtEditor
         private ToolbarButton _step1Button;
         private ToolbarButton _step5Button;
         private ToolbarButton _clearHistoryButton;
+        private ToolbarButton _saveDebugButton;
         private ToolbarToggle _breakpointsEnabledToggle;
         private ToolbarToggle _selectedNodeOnlyToggle;
         private Label _debugRuntimeStateLabel;
@@ -330,6 +331,12 @@ namespace GGemCo2DAiBtEditor
                 UpdateDebugView();
             }) { text = "Clear History" };
             controls.Add(_clearHistoryButton);
+
+            _saveDebugButton = new ToolbarButton(SaveDebugSnapshot)
+            {
+                text = "Save Debug"
+            };
+            controls.Add(_saveDebugButton);
 
             controls.Add(new ToolbarSpacer());
 
@@ -908,6 +915,7 @@ namespace GGemCo2DAiBtEditor
             _step1Button?.SetEnabled(enabled);
             _step5Button?.SetEnabled(enabled);
             _clearHistoryButton?.SetEnabled(hasRunner);
+            _saveDebugButton?.SetEnabled(hasRunner && _asset != null);
             _breakpointsEnabledToggle?.SetEnabled(hasRunner);
             _selectedNodeOnlyToggle?.SetEnabled(enabled);
 
@@ -982,22 +990,6 @@ namespace GGemCo2DAiBtEditor
                     break;
             }
         }
-
-        private string GetNodeDisplayTitleWithFallback(string nodeId)
-        {
-            if (string.IsNullOrEmpty(nodeId))
-                return "-";
-
-            var node = _asset?.FindNode(nodeId);
-            if (node == null)
-                return nodeId;
-
-            if (!string.IsNullOrWhiteSpace(node.title))
-                return node.title;
-
-            return node.id;
-        }
-
         private VisualElement BuildOverviewPanel()
         {
             var root = new ScrollView(ScrollViewMode.Vertical);
@@ -1008,22 +1000,17 @@ namespace GGemCo2DAiBtEditor
                 return root;
             }
 
-            string rootTitle = GetNodeDisplayTitleWithFallback(frame.RootNodeId);
-            string activeTitle = GetNodeDisplayTitleWithFallback(frame.ActiveNodeId);
-            string activePath = frame.ActivePath.Count > 0
-                ? string.Join(" -> ", frame.ActivePath.Select(GetNodeDisplayTitleWithFallback))
-                : "-";
-            string executionPath = frame.ActiveExecutionPath.Count > 0
-                ? string.Join(" -> ", frame.ActiveExecutionPath)
-                : "-";
+            root.Add(CreateInfoBox("Frame", $"TickIndex: {frame.TickIndex}\nRoot: {GetNodeDisplayTitleWithFallback(frame.RootNodeId)}\nRootStatus: {frame.RootStatus}\nTime: {frame.Time:0.###}"));
+            root.Add(CreateInfoBox("Active", $"Node: {GetNodeDisplayTitleWithFallback(frame.ActiveNodeId)}\nExecution Key: {frame.ActiveExecutionKey ?? "-"}\nFreeze: {_runner.DebugFreeze}"));
 
-            root.Add(CreateInfoBox("Frame",$"TickIndex: {frame.TickIndex}\nRoot: {rootTitle}\nRootStatus: {frame.RootStatus}\nTime: {frame.Time:0.###}"));
-            root.Add(CreateInfoBox("Active",$"Node: {activeTitle}\nExecution Key: {frame.ActiveExecutionKey ?? "-"}\nFreeze: {_runner.DebugFreeze}"));
-            root.Add(CreateInfoBox("Paths",$"Active Path: {activePath}\nExecution Path: {executionPath}"));
+            string activePath = frame.ActivePath.Count > 0 ? string.Join(" -> ", frame.ActivePath.Select(GetNodeDisplayTitleWithFallback)) : "-";
+            string executionPath = frame.ActiveExecutionPath.Count > 0 ? string.Join(" -> ", frame.ActiveExecutionPath) : "-";
+            root.Add(CreateInfoBox("Paths", $"Active Path: {activePath}\nExecution Path: {executionPath}"));
+
             var breakInfo = _runner.DebugLastBreakInfo;
             if (breakInfo.IsValid)
             {
-                root.Add(CreateInfoBox("Last Break",$"Tick: {breakInfo.TickIndex}\nNode: {GetNodeDisplayTitleWithFallback(breakInfo.NodeId)}\nStatus: {breakInfo.Status}\nReason: {breakInfo.Reason}\nSummary: {breakInfo.Summary}"));
+                root.Add(CreateInfoBox("Last Break", $"Tick: {breakInfo.TickIndex}\nNode: {GetNodeDisplayTitleWithFallback(breakInfo.NodeId)}\nStatus: {breakInfo.Status}\nReason: {breakInfo.Reason}\nSummary: {breakInfo.Summary}"));
             }
             else
             {
@@ -1039,7 +1026,7 @@ namespace GGemCo2DAiBtEditor
                 .Select(ev => new DebugRowData
                 {
                     Col1 = ev.Kind.ToString(),
-                    Col2 = string.IsNullOrEmpty(ev.NodeId) ? "-" : ev.NodeId,
+                    Col2 = string.IsNullOrEmpty(ev.Title) ? GetNodeDisplayTitleWithFallback(ev.NodeId) : ev.Title,
                     Col3 = ev.Status.ToString(),
                     Col4 = string.IsNullOrEmpty(ev.ExecutionKey) ? "-" : ev.ExecutionKey,
                     Col5 = BuildEventSummary(ev),
@@ -1048,7 +1035,7 @@ namespace GGemCo2DAiBtEditor
 
             var view = CreateDebugListView(
                 rows,
-                "Kind", "Node", "Status", "ExecutionKey", "Summary",
+                "Kind", "Title", "Status", "ExecutionKey", "Summary",
                 out _eventsListView);
 
             return WrapListView(view, rows.Count == 0 ? "No events recorded for current filter." : null);
@@ -1419,6 +1406,69 @@ namespace GGemCo2DAiBtEditor
             _graphView?.ApplyDebug(_runner);
             UpdateDebugView();
             Repaint();
+        }
+
+
+        private void SaveDebugSnapshot()
+        {
+            if (_runner == null)
+            {
+                EditorUtility.DisplayDialog("BT Debug Export", "활성 Runner가 없습니다.", "OK");
+                return;
+            }
+
+            if (_asset == null)
+            {
+                EditorUtility.DisplayDialog("BT Debug Export", "Tree Asset이 선택되어 있지 않습니다.", "OK");
+                return;
+            }
+
+            var exportData = BtDebugExportBuilder.Build(_runner, _asset, _selectedNodeId, _debugTab, _selectedNodeOnlyToggle != null && _selectedNodeOnlyToggle.value);
+            string defaultFileName = BuildDefaultDebugExportFileName();
+            string path = EditorUtility.SaveFilePanel("Save BT Debug Snapshot", string.Empty, defaultFileName, "json");
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            try
+            {
+                BtDebugExportWriter.WriteJson(path, exportData);
+                UpdateStatus($"Debug snapshot saved: {System.IO.Path.GetFileName(path)}");
+                EditorUtility.RevealInFinder(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                EditorUtility.DisplayDialog("BT Debug Export", $"디버그 저장 중 오류가 발생했습니다.\n{ex.Message}", "OK");
+            }
+        }
+
+        private string BuildDefaultDebugExportFileName()
+        {
+            string assetName = SanitizeFileName(_asset != null ? _asset.name : "bt_asset");
+            string runnerName = SanitizeFileName(_runner != null ? _runner.name : "runner");
+            return $"{assetName}_{runnerName}_bt_debug_{DateTime.Now:yyyyMMdd_HHmmss}";
+        }
+
+        private static string SanitizeFileName(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return "untitled";
+
+            var invalidChars = System.IO.Path.GetInvalidFileNameChars();
+            var chars = value.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray();
+            return new string(chars);
+        }
+
+        private string GetNodeDisplayTitleWithFallback(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId))
+                return "-";
+
+            var node = _asset?.FindNode(nodeId);
+            if (node == null)
+                return nodeId;
+
+            return string.IsNullOrEmpty(node.title) ? node.id : node.title;
         }
 
         private void DeleteNode(string nodeId)
