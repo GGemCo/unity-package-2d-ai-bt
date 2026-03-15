@@ -76,8 +76,9 @@ namespace GGemCo2DAiBt
         InvalidParameter,
         ChildMissing,
         RandomPickFailed,
+        RootRestartRequested,
+        RootRestartApplied,
         UnknownType,
-        RestartRequested,
         BreakpointMatched,
     }
 

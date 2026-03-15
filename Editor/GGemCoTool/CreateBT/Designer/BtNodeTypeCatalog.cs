@@ -154,10 +154,11 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
                     new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("restartRoot", BtValueType.Bool, required: false, defaultValue: false),
                 },
                 ["Action.RequestRestartRoot"] = new List<BtParamDef>
                 {
-                    new BtParamDef("reason", BtValueType.String, required: false, defaultValue: "Manual request"),
+                    new BtParamDef("reason", BtValueType.String, required: false, defaultValue: string.Empty),
                 },
                 ["Action.ResetSkillUseCount"] = new List<BtParamDef>
                 {

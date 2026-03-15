@@ -18,6 +18,10 @@ namespace GGemCo2DAiBt
     {
         public int TickIndex;
         public float LastTickTime;
+        public bool RestartRootRequested;
+        public string RestartRootReason;
+        public string RestartRootNodeId;
+        public string RestartRootExecutionKey;
 
         public readonly Dictionary<string, BtNodeState> NodeStates = new(StringComparer.Ordinal);
         /// <summary>
@@ -30,13 +34,41 @@ namespace GGemCo2DAiBt
         /// </summary>
         public readonly Dictionary<string, float> Timeouts = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// 현재 틱에서 Root부터 다시 시작하도록 다음 틱 재평가를 요청한다.
-        /// </summary>
-        public bool RestartRequested;
-        public string RestartReason;
-        public string RestartRequestedByExecutionKey;
-        public string RestartRequestedByNodeId;
+
+        public void RequestRestartRoot(string nodeId, string executionKey, string reason)
+        {
+            RestartRootRequested = true;
+            RestartRootNodeId = nodeId;
+            RestartRootExecutionKey = executionKey;
+            RestartRootReason = reason;
+        }
+
+        public bool ConsumeRestartRootRequest(out string nodeId, out string executionKey, out string reason)
+        {
+            if (!RestartRootRequested)
+            {
+                nodeId = null;
+                executionKey = null;
+                reason = null;
+                return false;
+            }
+
+            nodeId = RestartRootNodeId;
+            executionKey = RestartRootExecutionKey;
+            reason = RestartRootReason;
+
+            RestartRootRequested = false;
+            RestartRootNodeId = null;
+            RestartRootExecutionKey = null;
+            RestartRootReason = null;
+            return true;
+        }
+
+        public void ClearExecutionStateForRootRestart()
+        {
+            NodeStates.Clear();
+            Timeouts.Clear();
+        }
 
         public BtNodeState GetOrCreateNodeState(string executionKey, string nodeId)
         {
@@ -60,22 +92,6 @@ namespace GGemCo2DAiBt
                 st.ExecutionKey = executionKey;
             }
             return st;
-        }
-
-        public void RequestRestart(string nodeId, string executionKey, string reason)
-        {
-            RestartRequested = true;
-            RestartReason = reason;
-            RestartRequestedByExecutionKey = executionKey;
-            RestartRequestedByNodeId = nodeId;
-        }
-
-        public void ClearRestartRequest()
-        {
-            RestartRequested = false;
-            RestartReason = null;
-            RestartRequestedByExecutionKey = null;
-            RestartRequestedByNodeId = null;
         }
     }
 }
