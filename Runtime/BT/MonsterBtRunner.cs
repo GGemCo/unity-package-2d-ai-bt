@@ -490,6 +490,7 @@ namespace GGemCo2DAiBt
                 return;
 
             nodeState.RunningChildIndex = 0;
+            nodeState.SelectedChildIndex = -1;
             nodeState.LastStatus = BtStatus.Failure;
         }
 
@@ -634,12 +635,21 @@ namespace GGemCo2DAiBt
 
                 case BtTypeIds.Composite.RandomWeighted:
                 {
-                    // MVP: 매 틱 랜덤 선택(상태 유지 X). 필요 시 NodeState에 선택 인덱스를 저장해 안정화 가능.
-                    int pick = ctx.RandomPickWeighted(node.children, node.parameters);
-                    if (pick < 0 || pick >= node.children.Count)
+                    var nodeState = ctx.Runtime.GetOrCreateNodeState(executionKey, node.id);
+                    int pick = nodeState.SelectedChildIndex;
+                    bool reusedSelection = pick >= 0 && pick < node.children.Count;
+
+                    if (!reusedSelection)
                     {
-                        AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", BtStatus.Failure, BtDebugReason.RandomPickFailed, $"pick={pick}, childCount={node.children.Count}");
-                        return BtStatus.Failure;
+                        pick = ctx.RandomPickWeighted(node.children, node.parameters);
+                        if (pick < 0 || pick >= node.children.Count)
+                        {
+                            ResetCompositeState(nodeState);
+                            AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", BtStatus.Failure, BtDebugReason.RandomPickFailed, $"pick={pick}, childCount={node.children.Count}");
+                            return BtStatus.Failure;
+                        }
+
+                        nodeState.SelectedChildIndex = pick;
                     }
 
                     var pickedExecutionKey = GetChildExecutionKey(executionKey, node.children[pick], pick);
@@ -650,7 +660,18 @@ namespace GGemCo2DAiBt
                         return pickedStatus;
                     }
 
-                    AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", pickedStatus, BtDebugReason.None, $"picked child[{pick}] => {pickedStatus} / childCount={node.children.Count}");
+                    nodeState.LastStatus = pickedStatus;
+                    if (pickedStatus == BtStatus.Running)
+                    {
+                        AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", BtStatus.Running, BtDebugReason.None, $"selected child[{pick}] => Running / reusedSelection={reusedSelection}");
+                        return BtStatus.Running;
+                    }
+
+                    ResetCompositeState(nodeState);
+                    if (pickedStatus != BtStatus.Running)
+                        ResetSubtreeRuntime(executionKey);
+
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", pickedStatus, BtDebugReason.None, $"selected child[{pick}] => {pickedStatus} / reusedSelection={reusedSelection} / childCount={node.children.Count}");
                     return pickedStatus;
                 }
 

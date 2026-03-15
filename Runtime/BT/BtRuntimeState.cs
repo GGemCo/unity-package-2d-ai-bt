@@ -9,6 +9,7 @@ namespace GGemCo2DAiBt
         public string ExecutionKey;
         public BtStatus LastStatus;
         public int RunningChildIndex;
+        public int SelectedChildIndex;
         public float StartTime;
         public bool SkillStarted;
         public int RunningSkillUid;
@@ -80,6 +81,7 @@ namespace GGemCo2DAiBt
                     ExecutionKey = executionKey,
                     LastStatus = BtStatus.Failure,
                     RunningChildIndex = 0,
+                    SelectedChildIndex = -1,
                     StartTime = 0f,
                     SkillStarted = false,
                     RunningSkillUid = 0
