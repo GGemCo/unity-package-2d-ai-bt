@@ -624,9 +624,15 @@ namespace GGemCo2DAiBt
                         return BtStatus.Failure;
                     }
 
-                    AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", BtStatus.Running, BtDebugReason.None, $"picked child[{pick}] / childCount={node.children.Count}");
                     var pickedExecutionKey = GetChildExecutionKey(executionKey, node.children[pick], pick);
                     var pickedStatus = ExecuteNode(node.children[pick], ctx, depth + 1, pickedExecutionKey);
+                    if (_breakTriggeredThisTick)
+                    {
+                        AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", pickedStatus, BtDebugReason.BreakpointMatched, $"break after child[{pick}] => {pickedStatus}");
+                        return pickedStatus;
+                    }
+
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Composite, "RandomWeighted", pickedStatus, BtDebugReason.None, $"picked child[{pick}] => {pickedStatus} / childCount={node.children.Count}");
                     return pickedStatus;
                 }
 
