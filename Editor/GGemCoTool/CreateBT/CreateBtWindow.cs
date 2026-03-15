@@ -864,10 +864,10 @@ namespace GGemCo2DAiBtEditor
 
             if (string.IsNullOrEmpty(_selectedNodeId))
             {
-                _inspectorSummaryLabel.text = $"Tick #{frame.TickIndex} | Root={frame.RootStatus} | Active={frame.ActiveNodeId ?? "-"}";
+                _inspectorSummaryLabel.text = $"Tick #{frame.TickIndex} | Root={frame.RootStatus} | Active={GetNodeDisplayTitleWithFallback(frame.ActiveNodeId)}";
                 _inspectorExecutionLabel.text = $"Active Key={frame.ActiveExecutionKey ?? "-"} | Freeze={_runner.DebugFreeze}";
                 _inspectorMetricsLabel.text = frame.ActivePath.Count > 0
-                    ? $"Active Path: {string.Join(" -> ", frame.ActivePath)}"
+                    ? $"Active Path: {string.Join(" -> ", frame.ActivePath.Select(GetNodeDisplayTitleWithFallback))}"
                     : "Active Path: -";
                 return;
             }
@@ -940,7 +940,7 @@ namespace GGemCo2DAiBtEditor
             }
 
             _debugRuntimeStateLabel.text =
-                $"Tick #{frame.TickIndex} | Root={frame.RootStatus} | Active={frame.ActiveNodeId ?? "-"} | ActiveKey={frame.ActiveExecutionKey ?? "-"} | Freeze={_runner.DebugFreeze}";
+                $"Tick #{frame.TickIndex} | Root={frame.RootStatus} | Active={GetNodeDisplayTitleWithFallback(frame.ActiveNodeId)} | ActiveKey={frame.ActiveExecutionKey ?? "-"} | Freeze={_runner.DebugFreeze}";
         }
 
         private void RebuildDebugTabContent()
@@ -983,6 +983,21 @@ namespace GGemCo2DAiBtEditor
             }
         }
 
+        private string GetNodeDisplayTitleWithFallback(string nodeId)
+        {
+            if (string.IsNullOrEmpty(nodeId))
+                return "-";
+
+            var node = _asset?.FindNode(nodeId);
+            if (node == null)
+                return nodeId;
+
+            if (!string.IsNullOrWhiteSpace(node.title))
+                return node.title;
+
+            return node.id;
+        }
+
         private VisualElement BuildOverviewPanel()
         {
             var root = new ScrollView(ScrollViewMode.Vertical);
@@ -993,17 +1008,22 @@ namespace GGemCo2DAiBtEditor
                 return root;
             }
 
-            root.Add(CreateInfoBox("Frame", $"TickIndex: {frame.TickIndex}\nRoot: {frame.RootNodeId}\nRootStatus: {frame.RootStatus}\nTime: {frame.Time:0.###}"));
-            root.Add(CreateInfoBox("Active", $"Node: {frame.ActiveNodeId ?? "-"}\nExecution Key: {frame.ActiveExecutionKey ?? "-"}\nFreeze: {_runner.DebugFreeze}"));
+            string rootTitle = GetNodeDisplayTitleWithFallback(frame.RootNodeId);
+            string activeTitle = GetNodeDisplayTitleWithFallback(frame.ActiveNodeId);
+            string activePath = frame.ActivePath.Count > 0
+                ? string.Join(" -> ", frame.ActivePath.Select(GetNodeDisplayTitleWithFallback))
+                : "-";
+            string executionPath = frame.ActiveExecutionPath.Count > 0
+                ? string.Join(" -> ", frame.ActiveExecutionPath)
+                : "-";
 
-            string activePath = frame.ActivePath.Count > 0 ? string.Join(" -> ", frame.ActivePath) : "-";
-            string executionPath = frame.ActiveExecutionPath.Count > 0 ? string.Join(" -> ", frame.ActiveExecutionPath) : "-";
-            root.Add(CreateInfoBox("Paths", $"Active Path: {activePath}\nExecution Path: {executionPath}"));
-
+            root.Add(CreateInfoBox("Frame",$"TickIndex: {frame.TickIndex}\nRoot: {rootTitle}\nRootStatus: {frame.RootStatus}\nTime: {frame.Time:0.###}"));
+            root.Add(CreateInfoBox("Active",$"Node: {activeTitle}\nExecution Key: {frame.ActiveExecutionKey ?? "-"}\nFreeze: {_runner.DebugFreeze}"));
+            root.Add(CreateInfoBox("Paths",$"Active Path: {activePath}\nExecution Path: {executionPath}"));
             var breakInfo = _runner.DebugLastBreakInfo;
             if (breakInfo.IsValid)
             {
-                root.Add(CreateInfoBox("Last Break", $"Tick: {breakInfo.TickIndex}\nNode: {breakInfo.NodeId}\nStatus: {breakInfo.Status}\nReason: {breakInfo.Reason}\nSummary: {breakInfo.Summary}"));
+                root.Add(CreateInfoBox("Last Break",$"Tick: {breakInfo.TickIndex}\nNode: {GetNodeDisplayTitleWithFallback(breakInfo.NodeId)}\nStatus: {breakInfo.Status}\nReason: {breakInfo.Reason}\nSummary: {breakInfo.Summary}"));
             }
             else
             {
@@ -1072,11 +1092,11 @@ namespace GGemCo2DAiBtEditor
                     {
                         Col1 = frame.TickIndex.ToString(),
                         Col2 = frame.RootStatus.ToString(),
-                        Col3 = frame.ActiveNodeId ?? "-",
+                        Col3 = GetNodeDisplayTitleWithFallback(frame.ActiveNodeId),
                         Col4 = frame.ActiveExecutionKey ?? "-",
                         Col5 = !string.IsNullOrEmpty(nodeEvent.NodeId)
                             ? $"Selected={nodeEvent.Status} | {nodeEvent.Summary}"
-                            : (frame.ActivePath.Count > 0 ? string.Join(" -> ", frame.ActivePath) : "-"),
+                            : (frame.ActivePath.Count > 0 ? string.Join(" -> ", frame.ActivePath.Select(GetNodeDisplayTitleWithFallback)) : "-"),
                     });
                 }
             }
@@ -1117,7 +1137,7 @@ namespace GGemCo2DAiBtEditor
                 });
             }
 
-            var view = CreateDebugListView(rows, "Title", "Node", "State", "Flags", "Type", out _breakpointsListView);
+            var view = CreateDebugListView(rows, "Title", "NodeId", "State", "Flags", "Type", out _breakpointsListView);
             root.Add(WrapListView(view, rows.Count == 0 ? "No nodes available." : null));
             return root;
         }
