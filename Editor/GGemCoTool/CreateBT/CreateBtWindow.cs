@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using GGemCo2DAiBt;
 using UnityEditor;
@@ -11,18 +12,21 @@ using UnityEngine.UIElements;
 namespace GGemCo2DAiBtEditor
 {
     /// <summary>
-    /// GraphView + UI Toolkit 기반 BT 디자이너(실전용 v1.1).
-    /// - 자식 순서: ReorderableList(드래그&드롭)로 정렬 지원
-    /// - 파라미터: typeId 기반 ParamDef로 자동 UI 생성
-    /// - 디버그: Runner Attach 후 조건 평가 값(거리/HP 등) 표시 + 실행 경로 하이라이트
+    /// GraphView + UI Toolkit 기반 BT 디자이너.
+    /// 편집용 Inspector와 런타임 Debug 패널을 분리해 가독성과 유지보수성을 높인다.
     /// </summary>
     public sealed class CreateBtWindow : EditorWindow
     {
         private const string Title = "BT 생성/테스트 툴";
+        private const float InspectorWidth = 360f;
+        private const float BottomDebugHeight = 300f;
+
         private MonsterBehaviorTreeAsset _asset;
 
         private BtGraphView _graphView;
         private VisualElement _inspectorRoot;
+        private VisualElement _debugRoot;
+        private VisualElement _debugTabContent;
         private Label _statusLabel;
 
         private string _selectedNodeId;
@@ -31,6 +35,25 @@ namespace GGemCo2DAiBtEditor
         private MonsterBtRunner _runner;
 
         private ToolbarButton _applyTreeToRunnerButton;
+        private ToolbarButton _freezeButton;
+        private ToolbarButton _step1Button;
+        private ToolbarButton _step5Button;
+        private ToolbarButton _clearHistoryButton;
+        private ToolbarToggle _breakpointsEnabledToggle;
+        private ToolbarToggle _selectedNodeOnlyToggle;
+        private Label _debugRuntimeStateLabel;
+
+        private ListView _eventsListView;
+        private ListView _metricsListView;
+        private ListView _historyListView;
+        private ListView _breakpointsListView;
+
+        private string _debugTab = "Overview";
+
+        // Inspector runtime summary
+        private Label _inspectorSummaryLabel;
+        private Label _inspectorExecutionLabel;
+        private Label _inspectorMetricsLabel;
 
         // Children reorder
         private ReorderableList _childrenReorder;
@@ -66,15 +89,114 @@ namespace GGemCo2DAiBtEditor
             }
 
             RefreshInspector(_selectedNodeId);
+            UpdateDebugView();
             UpdateStatus();
         }
 
         private void CreateGUI()
         {
             var root = rootVisualElement;
+            root.Clear();
             root.style.flexDirection = FlexDirection.Column;
 
-            // Toolbar
+            root.Add(BuildTopToolbar());
+
+            var content = new VisualElement
+            {
+                style =
+                {
+                    flexGrow = 1,
+                    flexDirection = FlexDirection.Column,
+                }
+            };
+            root.Add(content);
+
+            var topArea = new VisualElement
+            {
+                style =
+                {
+                    flexGrow = 1,
+                    flexDirection = FlexDirection.Row,
+                }
+            };
+            content.Add(topArea);
+
+            _graphView = new BtGraphView(this);
+            _graphView.style.flexGrow = 1;
+            _graphView.OnSelectionChanged += id =>
+            {
+                _selectedNodeId = id;
+                RefreshInspector(id);
+            };
+            topArea.Add(_graphView);
+
+            root.schedule.Execute(() =>
+            {
+                _graphView?.PollSelectionChange();
+            }).Every(50);
+
+            var inspectorScroll = new ScrollView(ScrollViewMode.Vertical)
+            {
+                style =
+                {
+                    width = InspectorWidth,
+                    flexShrink = 0,
+                    flexGrow = 0,
+                    borderLeftWidth = 1,
+                    borderLeftColor = new Color(0, 0, 0, 0.25f)
+                }
+            };
+            inspectorScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
+            inspectorScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
+
+            _inspectorRoot = new VisualElement
+            {
+                style =
+                {
+                    flexGrow = 1,
+                    paddingLeft = 10,
+                    paddingRight = 10,
+                    paddingTop = 8,
+                    paddingBottom = 8
+                }
+            };
+            inspectorScroll.Add(_inspectorRoot);
+            topArea.Add(inspectorScroll);
+
+            _debugRoot = new VisualElement
+            {
+                style =
+                {
+                    height = BottomDebugHeight,
+                    flexShrink = 0,
+                    borderTopWidth = 1,
+                    borderTopColor = new Color(0, 0, 0, 0.25f),
+                    paddingLeft = 8,
+                    paddingRight = 8,
+                    paddingTop = 6,
+                    paddingBottom = 6,
+                    flexDirection = FlexDirection.Column,
+                }
+            };
+            content.Add(_debugRoot);
+
+            BuildBottomDebugPanel();
+
+            _statusLabel = new Label { style = { paddingLeft = 6, paddingTop = 3, paddingBottom = 3 } };
+            root.Add(_statusLabel);
+
+            _graphView.SetAsset(_asset);
+            _graphView.PopulateFromAsset();
+            _graphView.ApplyDebug(_runner);
+
+            AttachRunnerEvents();
+            RefreshInspector(_selectedNodeId);
+            UpdateDebugView();
+            UpdateStatus();
+        }
+
+        private Toolbar BuildTopToolbar()
+        {
             var toolbar = new Toolbar();
 
             var assetField = new ObjectField("Tree Asset")
@@ -105,7 +227,6 @@ namespace GGemCo2DAiBtEditor
 
             toolbar.Add(new ToolbarButton(() => _graphView?.FrameAll()) { text = "Frame All" });
 
-            // Debug attach (Runner)
             var runnerField = new ObjectField("Attach Runner")
             {
                 objectType = typeof(MonsterBtRunner),
@@ -119,77 +240,164 @@ namespace GGemCo2DAiBtEditor
                 AttachRunnerEvents();
                 UpdateStatus("Runner attached.");
                 RefreshInspector(_selectedNodeId);
+                UpdateDebugView();
             });
             toolbar.Add(new ToolbarSpacer());
             toolbar.Add(runnerField);
 
-            // Runner에 현재 디자이너의 Tree Asset을 적용(런타임/에디트 모드 모두 지원)
             _applyTreeToRunnerButton = new ToolbarButton(ApplyTreeAssetToRunner)
             {
                 text = "Apply Tree To Runner"
             };
             toolbar.Add(_applyTreeToRunnerButton);
 
-            root.Add(toolbar);
+            return toolbar;
+        }
 
-            // Split
-            var body = new VisualElement { style = { flexGrow = 1, flexDirection = FlexDirection.Row } };
-            root.Add(body);
+        private void BuildBottomDebugPanel()
+        {
+            _debugRoot.Clear();
+            _debugRoot.Add(BuildGlobalDebugToolbar());
+            _debugRoot.Add(BuildDebugTabBar());
 
-            _graphView = new BtGraphView(this);
-            _graphView.style.flexGrow = 1;
-            _graphView.OnSelectionChanged += id =>
-            {
-                _selectedNodeId = id;
-                RefreshInspector(id);
-            };
-            body.Add(_graphView);
-
-            // GraphView 선택 이벤트가 제공되지 않는 Unity 버전 대응: 주기적으로 selection을 폴링한다.
-            root.schedule.Execute(() =>
-            {
-                _graphView?.PollSelectionChange();
-            }).Every(50);
-
-            var inspectorScroll = new ScrollView(ScrollViewMode.Vertical)
-            {
-                style =
-                {
-                    width = 360,
-                    flexShrink = 0,
-                    flexGrow = 0,
-                    borderLeftWidth = 1,
-                    borderLeftColor = new Color(0,0,0,0.25f)
-                }
-            };
-            inspectorScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            inspectorScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
-
-            _inspectorRoot = new VisualElement
+            _debugTabContent = new VisualElement
             {
                 style =
                 {
                     flexGrow = 1,
-                    paddingLeft = 10,
-                    paddingRight = 10,
-                    paddingTop = 8,
-                    paddingBottom = 8
+                    marginTop = 6,
                 }
             };
-            inspectorScroll.Add(_inspectorRoot);
-            body.Add(inspectorScroll);
+            _debugRoot.Add(_debugTabContent);
+        }
 
-            // Status
-            _statusLabel = new Label { style = { paddingLeft = 6, paddingTop = 3, paddingBottom = 3 } };
-            root.Add(_statusLabel);
+        private VisualElement BuildGlobalDebugToolbar()
+        {
+            var root = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Column,
+                    flexShrink = 0,
+                }
+            };
 
-            _graphView.SetAsset(_asset);
-            _graphView.PopulateFromAsset();
-            _graphView.ApplyDebug(_runner);
+            var controls = new Toolbar();
 
-            AttachRunnerEvents();
-            RefreshInspector(_selectedNodeId);
-            UpdateStatus();
+            _freezeButton = new ToolbarButton(() =>
+            {
+                if (_runner == null)
+                    return;
+
+                _runner.SetDebugFreeze(!_runner.DebugFreeze);
+                _graphView?.ApplyDebug(_runner);
+                UpdateDebugView();
+            });
+            controls.Add(_freezeButton);
+
+            _step1Button = new ToolbarButton(() =>
+            {
+                if (_runner == null)
+                    return;
+
+                _runner.RequestDebugStep(1);
+                _runner.SetDebugFreeze(true);
+                UpdateStatus("Requested 1 debug step.");
+                UpdateDebugView();
+            }) { text = "Step 1" };
+            controls.Add(_step1Button);
+
+            _step5Button = new ToolbarButton(() =>
+            {
+                if (_runner == null)
+                    return;
+
+                _runner.RequestDebugStep(5);
+                _runner.SetDebugFreeze(true);
+                UpdateStatus("Requested 5 debug steps.");
+                UpdateDebugView();
+            }) { text = "Step 5" };
+            controls.Add(_step5Button);
+
+            _clearHistoryButton = new ToolbarButton(() =>
+            {
+                if (_runner == null)
+                    return;
+
+                _runner.ClearDebugHistory();
+                _graphView?.ApplyDebug(_runner);
+                UpdateStatus("Debug history cleared.");
+                UpdateDebugView();
+            }) { text = "Clear History" };
+            controls.Add(_clearHistoryButton);
+
+            controls.Add(new ToolbarSpacer());
+
+            _breakpointsEnabledToggle = new ToolbarToggle { text = "Breakpoints" };
+            _breakpointsEnabledToggle.RegisterValueChangedCallback(evt =>
+            {
+                if (_runner == null)
+                    return;
+
+                _runner.DebugBreakpointsEnabled = evt.newValue;
+                _graphView?.ApplyDebug(_runner);
+                UpdateDebugView();
+            });
+            controls.Add(_breakpointsEnabledToggle);
+
+            _selectedNodeOnlyToggle = new ToolbarToggle { text = "Selected Node Only" };
+            _selectedNodeOnlyToggle.RegisterValueChangedCallback(_ => UpdateDebugView());
+            controls.Add(_selectedNodeOnlyToggle);
+
+            root.Add(controls);
+
+            _debugRuntimeStateLabel = new Label
+            {
+                style =
+                {
+                    marginTop = 4,
+                    opacity = 0.85f,
+                    whiteSpace = WhiteSpace.Normal,
+                }
+            };
+            root.Add(_debugRuntimeStateLabel);
+
+            return root;
+        }
+
+        private VisualElement BuildDebugTabBar()
+        {
+            var tabs = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    flexShrink = 0,
+                    marginTop = 6,
+                }
+            };
+
+            tabs.Add(CreateDebugTabButton("Overview"));
+            tabs.Add(CreateDebugTabButton("Events"));
+            tabs.Add(CreateDebugTabButton("Metrics"));
+            tabs.Add(CreateDebugTabButton("History"));
+            tabs.Add(CreateDebugTabButton("Breakpoints"));
+
+            return tabs;
+        }
+
+        private Button CreateDebugTabButton(string tabName)
+        {
+            var button = new Button(() =>
+            {
+                _debugTab = tabName;
+                UpdateDebugView();
+            })
+            {
+                text = tabName
+            };
+            button.style.marginRight = 4;
+            return button;
         }
 
         private static bool TryInvokeRunnerSetTree(MonsterBtRunner runner, MonsterBehaviorTreeAsset asset)
@@ -197,8 +405,6 @@ namespace GGemCo2DAiBtEditor
             if (runner == null) return false;
 
             var t = runner.GetType();
-
-            // 1) public void SetTree(MonsterBehaviorTreeAsset asset)
             var m1 = t.GetMethod("SetTree", new[] { typeof(MonsterBehaviorTreeAsset) });
             if (m1 != null)
             {
@@ -206,8 +412,6 @@ namespace GGemCo2DAiBtEditor
                 return true;
             }
 
-            // 2) public void SetTree(MonsterBehaviorTreeAsset asset, BtTreeSwitchMode mode)
-            // 패키지 버전에 따라 switch enum이 중첩 타입일 수 있다.
             var enumType = t.GetNestedType("BtTreeSwitchMode");
             if (enumType != null && enumType.IsEnum)
             {
@@ -215,7 +419,6 @@ namespace GGemCo2DAiBtEditor
                 if (m2 != null)
                 {
                     object mode;
-                    // 가능한 한 상태를 유지하는 모드를 우선 사용
                     if (Enum.GetNames(enumType).Contains("PreserveBlackboardValues"))
                         mode = Enum.Parse(enumType, "PreserveBlackboardValues");
                     else if (Enum.GetNames(enumType).Contains("PreserveBlackboardAndSkillUseCounts"))
@@ -245,12 +448,9 @@ namespace GGemCo2DAiBtEditor
                 return;
             }
 
-            // Play Mode: 안전한 런타임 교체 API를 우선 사용
             if (EditorApplication.isPlaying)
             {
                 var type = typeof(MonsterBtRunner);
-
-                // 최신 버전: SetTree(MonsterBehaviorTreeAsset, BtTreeSwitchMode)
                 var m2 = type.GetMethods()
                     .FirstOrDefault(m =>
                         m.Name == "SetTree" &&
@@ -261,25 +461,21 @@ namespace GGemCo2DAiBtEditor
                 {
                     var modeType = m2.GetParameters()[1].ParameterType;
                     object modeValue = null;
-
-                    // 기본값은 Blackboard 유지(가능하면)
-                    var preserve = System.Enum.GetNames(modeType).FirstOrDefault(n => n.Contains("PreserveBlackboard"));
-                    modeValue = preserve != null ? System.Enum.Parse(modeType, preserve) : System.Enum.GetValues(modeType).GetValue(0);
-
+                    var preserve = Enum.GetNames(modeType).FirstOrDefault(n => n.Contains("PreserveBlackboard"));
+                    modeValue = preserve != null ? Enum.Parse(modeType, preserve) : Enum.GetValues(modeType).GetValue(0);
                     m2.Invoke(_runner, new[] { (object)_asset, modeValue });
                 }
                 else
                 {
-                    // 구버전: SetTree(MonsterBehaviorTreeAsset)
                     _runner.SetTree(_asset);
                 }
 
-                UpdateStatus("Applied tree to runner (Play Mode)." );
+                UpdateStatus("Applied tree to runner (Play Mode).");
                 _graphView?.ApplyDebug(_runner);
+                UpdateDebugView();
                 return;
             }
 
-            // Edit Mode: SerializedProperty로 treeAsset 교체
             var so = new SerializedObject(_runner);
             var prop = so.FindProperty("treeAsset");
             if (prop == null)
@@ -292,7 +488,8 @@ namespace GGemCo2DAiBtEditor
             prop.objectReferenceValue = _asset;
             so.ApplyModifiedProperties();
             EditorUtility.SetDirty(_runner);
-            UpdateStatus("Applied tree to runner (Edit Mode)." );
+            UpdateStatus("Applied tree to runner (Edit Mode).");
+            UpdateDebugView();
         }
 
         private void OnDisable()
@@ -324,6 +521,7 @@ namespace GGemCo2DAiBtEditor
             if (_asset == null)
             {
                 RefreshInspector(null);
+                UpdateDebugView();
                 UpdateStatus("Undo / Redo applied.");
                 Repaint();
                 return;
@@ -343,6 +541,7 @@ namespace GGemCo2DAiBtEditor
             }
 
             RefreshInspector(_selectedNodeId);
+            UpdateDebugView();
             UpdateStatus("Undo / Redo applied.");
             Repaint();
         }
@@ -361,10 +560,9 @@ namespace GGemCo2DAiBtEditor
 
         private void OnRunnerDebugTicked(MonsterBtRunner runner)
         {
-            // 실행 경로 하이라이트 업데이트는 GraphView에서 즉시 적용 가능.
-            _graphView?.ApplyDebug(_runner);
-            // Inspector의 Debug 패널도 최신 메트릭을 보도록 갱신
-            RefreshInspector(_selectedNodeId);
+            _graphView?.ApplyDebug(runner);
+            UpdateInspectorDebugSummary();
+            UpdateDebugView();
         }
 
         internal MonsterBehaviorTreeAsset Asset => _asset;
@@ -398,6 +596,7 @@ namespace GGemCo2DAiBtEditor
             if (refreshInspector)
                 RefreshInspector(_selectedNodeId);
 
+            UpdateDebugView();
             UpdateStatus(message);
         }
 
@@ -407,6 +606,7 @@ namespace GGemCo2DAiBtEditor
                 return;
 
             _inspectorRoot.Clear();
+            ResetInspectorDebugSummaryReferences();
 
             if (_asset == null)
             {
@@ -425,7 +625,8 @@ namespace GGemCo2DAiBtEditor
                 }) { text = "Create Example BT" });
 
                 _inspectorRoot.Add(new VisualElement { style = { height = 12 } });
-                _inspectorRoot.Add(BuildDebugPanel(null));
+                _inspectorRoot.Add(BuildNodeInspectorDebugSummary(null));
+                UpdateInspectorDebugSummary();
                 return;
             }
 
@@ -436,13 +637,11 @@ namespace GGemCo2DAiBtEditor
                 return;
             }
 
-            // Header
             var header = new VisualElement { style = { flexDirection = FlexDirection.Column, marginBottom = 8 } };
             header.Add(new Label(node.title) { style = { unityFontStyleAndWeight = FontStyle.Bold, fontSize = 13 } });
             header.Add(new Label(node.typeId) { style = { opacity = 0.75f } });
             _inspectorRoot.Add(header);
 
-            // Root controls
             var rootRow = new VisualElement { style = { flexDirection = FlexDirection.Row, marginBottom = 8 } };
             var isRoot = _asset.rootNodeId == node.id;
             var rootToggle = new Toggle("Set as Root") { value = isRoot };
@@ -456,21 +655,18 @@ namespace GGemCo2DAiBtEditor
                 }
                 else
                 {
-                    // Root 해제는 UX 상 혼란이 많아 허용하지 않음(필요 시 다른 노드를 root로 지정)
                     rootToggle.SetValueWithoutNotify(true);
                 }
             });
             rootRow.Add(rootToggle);
             _inspectorRoot.Add(rootRow);
 
-            // Title field
             var titleField = new TextField("Title") { value = node.title, isDelayed = true };
             titleField.RegisterValueChangedCallback(evt =>
             {
                 BtUndoUtility.RecordDelta(_asset, "Edit BT Title");
                 node.title = evt.newValue;
                 BtUndoUtility.SetDirty(_asset);
-                // Title 변경은 그래프 구조 변경이 아니므로 전체 리빌드를 피한다.
                 _graphView.RefreshNodeView(node.id);
                 _graphView.SelectNode(node.id);
                 RefreshInspector(node.id);
@@ -478,7 +674,6 @@ namespace GGemCo2DAiBtEditor
             });
             _inspectorRoot.Add(titleField);
 
-            // Comment field
             var commentField = new TextField("Comment") { value = node.comment, multiline = true, isDelayed = true };
             commentField.style.minHeight = 60;
             commentField.RegisterValueChangedCallback(evt =>
@@ -491,28 +686,31 @@ namespace GGemCo2DAiBtEditor
             });
             _inspectorRoot.Add(commentField);
 
-            // Parameters (auto UI)
             _inspectorRoot.Add(new Label("Parameters") { style = { marginTop = 10, unityFontStyleAndWeight = FontStyle.Bold } });
             BtEditorParamUtility.EnsureParams(node, _asset);
             _inspectorRoot.Add(BtEditorParamUtility.CreateParamEditor(this, _asset, node, () =>
             {
-                // 파라미터만 바뀐 경우 그래프 구조는 유지하므로 Populate는 필요 시에만
                 UpdateStatus("Param updated.");
             }));
 
-            // Children order (drag & drop)
             _inspectorRoot.Add(new Label("Children Order") { style = { marginTop = 10, unityFontStyleAndWeight = FontStyle.Bold } });
             _inspectorRoot.Add(BuildChildrenOrderUI(node));
 
-            // Delete
             _inspectorRoot.Add(new VisualElement { style = { height = 8 } });
             var deleteBtn = new Button(() => DeleteNode(node.id)) { text = "Delete Node" };
             deleteBtn.style.unityFontStyleAndWeight = FontStyle.Bold;
             _inspectorRoot.Add(deleteBtn);
 
-            // Debug
             _inspectorRoot.Add(new VisualElement { style = { height = 12 } });
-            _inspectorRoot.Add(BuildDebugPanel(node.id));
+            _inspectorRoot.Add(BuildNodeInspectorDebugSummary(node.id));
+
+            if (_runner != null)
+            {
+                _inspectorRoot.Add(new VisualElement { style = { height = 8 } });
+                _inspectorRoot.Add(BuildBreakpointEditor(node.id));
+            }
+
+            UpdateInspectorDebugSummary();
         }
 
         private VisualElement BuildChildrenOrderUI(BtNodeRecord node)
@@ -525,11 +723,9 @@ namespace GGemCo2DAiBtEditor
                 return root;
             }
 
-            node.children ??= new System.Collections.Generic.List<string>();
+            node.children ??= new List<string>();
 
-            // IMGUI ReorderableList (드래그&드롭 정렬) - UI Toolkit 안에 포함
             _childrenReorder = new ReorderableList(node.children, typeof(string), draggable: node.kind == BtNodeKind.Composite, displayHeader: false, displayAddButton: false, displayRemoveButton: false);
-
             _childrenReorder.elementHeight = 20;
             _childrenReorder.drawElementCallback = (rect, index, active, focused) =>
             {
@@ -550,8 +746,6 @@ namespace GGemCo2DAiBtEditor
                 {
                     _selectedNodeId = childId;
                     RefreshInspector(childId);
-
-                    // 그래프에서도 선택 처리
                     _graphView?.SelectNode(childId, frame: true);
                 }
 
@@ -576,7 +770,6 @@ namespace GGemCo2DAiBtEditor
                 NotifyTreeChanged("Children reordered.", selectNodeId: node.id);
             };
 
-            // Decorator는 children 1개 제한 - 정렬 대신 현재 연결만 보여준다.
             if (node.kind == BtNodeKind.Decorator)
             {
                 root.Add(new Label("Decorator: only one child is allowed.") { style = { opacity = 0.75f } });
@@ -604,258 +797,532 @@ namespace GGemCo2DAiBtEditor
             return root;
         }
 
-        private VisualElement BuildDebugPanel(string nodeId)
+        private VisualElement BuildNodeInspectorDebugSummary(string nodeId)
         {
-            var fold = new Foldout { text = "Debug", value = true };
-
-            if (_runner == null)
-            {
-                fold.Add(new Label("Attach Runner to see live data.") { style = { opacity = 0.75f } });
-                return fold;
-            }
-
-            var controls = new VisualElement
+            var root = new VisualElement
             {
                 style =
                 {
-                    flexDirection = FlexDirection.Column,
-                    marginTop = 4,
-                    marginBottom = 6,
+                    paddingTop = 6,
+                    paddingBottom = 6,
+                    borderTopWidth = 1,
+                    borderBottomWidth = 1,
+                    borderTopColor = new Color(0f, 0f, 0f, 0.2f),
+                    borderBottomColor = new Color(0f, 0f, 0f, 0.2f)
                 }
             };
 
-            var row1 = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap } };
-            var freezeButton = new Button(() =>
-            {
-                _runner.SetDebugFreeze(!_runner.DebugFreeze);
-                _graphView?.ApplyDebug(_runner);
-                RefreshInspector(_selectedNodeId);
-                Repaint();
-            })
-            {
-                text = _runner.DebugFreeze ? "Resume" : "Freeze"
-            };
-            row1.Add(freezeButton);
+            root.Add(new Label("Runtime Summary") { style = { unityFontStyleAndWeight = FontStyle.Bold } });
 
-            var step1Button = new Button(() =>
-            {
-                _runner.RequestDebugStep(1);
-                _runner.SetDebugFreeze(true);
-                UpdateStatus("Requested 1 debug step.");
-                RefreshInspector(_selectedNodeId);
-                Repaint();
-            })
-            {
-                text = "Step 1"
-            };
-            row1.Add(step1Button);
+            _inspectorSummaryLabel = new Label { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.92f } };
+            _inspectorExecutionLabel = new Label { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.85f, marginTop = 2 } };
+            _inspectorMetricsLabel = new Label { style = { whiteSpace = WhiteSpace.Normal, opacity = 0.8f, marginTop = 2 } };
 
-            var step5Button = new Button(() =>
-            {
-                _runner.RequestDebugStep(5);
-                _runner.SetDebugFreeze(true);
-                UpdateStatus("Requested 5 debug steps.");
-                RefreshInspector(_selectedNodeId);
-                Repaint();
-            })
-            {
-                text = "Step 5"
-            };
-            row1.Add(step5Button);
+            root.Add(_inspectorSummaryLabel);
+            root.Add(_inspectorExecutionLabel);
+            root.Add(_inspectorMetricsLabel);
 
-            var clearHistoryButton = new Button(() =>
-            {
-                _runner.ClearDebugHistory();
-                _graphView?.ApplyDebug(_runner);
-                RefreshInspector(_selectedNodeId);
-                UpdateStatus("Debug history cleared.");
-                Repaint();
-            })
-            {
-                text = "Clear History"
-            };
-            row1.Add(clearHistoryButton);
-            controls.Add(row1);
+            return root;
+        }
 
-            var row2 = new VisualElement { style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, marginTop = 4 } };
-            var breakpointsEnabled = new Toggle("Breakpoints") { value = _runner.DebugBreakpointsEnabled };
-            breakpointsEnabled.RegisterValueChangedCallback(evt =>
-            {
-                _runner.DebugBreakpointsEnabled = evt.newValue;
-                _graphView?.ApplyDebug(_runner);
-                RefreshInspector(_selectedNodeId);
-                Repaint();
-            });
-            row2.Add(breakpointsEnabled);
-            controls.Add(row2);
+        private void ResetInspectorDebugSummaryReferences()
+        {
+            _inspectorSummaryLabel = null;
+            _inspectorExecutionLabel = null;
+            _inspectorMetricsLabel = null;
+        }
 
-            fold.Add(controls);
+        private void UpdateInspectorDebugSummary()
+        {
+            if (_inspectorSummaryLabel == null || _inspectorExecutionLabel == null || _inspectorMetricsLabel == null)
+                return;
 
-            if (!string.IsNullOrEmpty(nodeId))
+            if (_runner == null)
             {
-                fold.Add(BuildBreakpointEditor(nodeId));
+                _inspectorSummaryLabel.text = "Attach Runner to inspect live runtime state.";
+                _inspectorExecutionLabel.text = string.Empty;
+                _inspectorMetricsLabel.text = string.Empty;
+                return;
             }
 
             if (!EditorApplication.isPlaying)
             {
-                fold.Add(new Label("Enter Play Mode to see runtime trace/metrics.") { style = { opacity = 0.75f } });
-                return fold;
-            }
-
-            var breakInfo = _runner.DebugLastBreakInfo;
-            if (breakInfo.IsValid)
-            {
-                string breakText = $"Paused At: {breakInfo.NodeId} | Status: {breakInfo.Status} | Tick: {breakInfo.TickIndex}";
-                if (breakInfo.Reason != BtDebugReason.None)
-                    breakText += $" | Reason: {breakInfo.Reason}";
-                fold.Add(new Label(breakText) { style = { unityFontStyleAndWeight = FontStyle.Bold, whiteSpace = WhiteSpace.Normal } });
-                if (!string.IsNullOrEmpty(breakInfo.Summary))
-                    fold.Add(new Label(breakInfo.Summary) { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
+                _inspectorSummaryLabel.text = "Enter Play Mode to inspect runtime debug data.";
+                _inspectorExecutionLabel.text = string.Empty;
+                _inspectorMetricsLabel.text = string.Empty;
+                return;
             }
 
             var frame = _runner.DebugLastFrame;
             if (frame == null)
             {
-                fold.Add(new Label("No debug frame captured yet.") { style = { opacity = 0.75f } });
-                return fold;
+                _inspectorSummaryLabel.text = "No debug frame captured yet.";
+                _inspectorExecutionLabel.text = string.Empty;
+                _inspectorMetricsLabel.text = string.Empty;
+                return;
             }
 
-            fold.Add(new Label($"TickIndex: {frame.TickIndex} | Root: {frame.RootNodeId} | RootStatus: {frame.RootStatus}") { style = { opacity = 0.9f } });
-            fold.Add(new Label($"Active: {frame.ActiveNodeId ?? "-"} | ActiveKey: {frame.ActiveExecutionKey ?? "-"} | Time: {frame.Time:0.###} | Freeze: {_runner.DebugFreeze}") { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
-
-            if (frame.ActivePath.Count > 0)
-                fold.Add(new Label($"Active Path: {string.Join(" -> ", frame.ActivePath)}") { style = { opacity = 0.85f, whiteSpace = WhiteSpace.Normal } });
-            if (frame.ActiveExecutionPath.Count > 0)
-                fold.Add(new Label($"Active Execution Path: {string.Join(" -> ", frame.ActiveExecutionPath)}") { style = { opacity = 0.8f, whiteSpace = WhiteSpace.Normal } });
-
-            var nodeEvents = string.IsNullOrEmpty(nodeId)
-                ? frame.Events
-                : frame.Events.Where(e => e.NodeId == nodeId).ToList();
-
-            var nodeMetrics = string.IsNullOrEmpty(nodeId)
-                ? frame.Metrics
-                : frame.Metrics.Where(m => m.NodeId == nodeId).ToList();
-
-            var body = new VisualElement { style = { marginTop = 6 } };
-
-            if (!string.IsNullOrEmpty(nodeId))
+            if (string.IsNullOrEmpty(_selectedNodeId))
             {
-                body.Add(new Label("Execution Instances") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 4 } });
-
-                var executionKeys = frame.Events
-                    .Where(e => e.NodeId == nodeId && !string.IsNullOrEmpty(e.ExecutionKey))
-                    .Select(e => e.ExecutionKey)
-                    .Distinct()
-                    .OrderBy(x => x)
-                    .ToList();
-
-                if (executionKeys.Count == 0)
-                {
-                    body.Add(new Label("No execution instances for selected node.") { style = { opacity = 0.75f } });
-                }
-                else
-                {
-                    foreach (var executionKey in executionKeys)
-                    {
-                        var lastEvent = frame.Events.LastOrDefault(e => e.NodeId == nodeId && e.ExecutionKey == executionKey);
-                        string line = $"{executionKey} => {lastEvent.Status}";
-                        if (lastEvent.Reason != BtDebugReason.None)
-                            line += $" ({lastEvent.Reason})";
-                        if (!string.IsNullOrEmpty(lastEvent.Summary))
-                            line += $" | {lastEvent.Summary}";
-                        body.Add(new Label(line) { style = { opacity = 0.92f, whiteSpace = WhiteSpace.Normal } });
-
-                        var executionMetrics = frame.Metrics.Where(m => m.NodeId == nodeId && m.ExecutionKey == executionKey).ToList();
-                        if (executionMetrics.Count > 0)
-                        {
-                            for (int i = 0; i < executionMetrics.Count; i++)
-                            {
-                                var metric = executionMetrics[i];
-                                string metricLine = $"    - {metric.Key}: {metric.Value:0.###}";
-                                if (!string.IsNullOrEmpty(metric.Text))
-                                    metricLine += $" ({metric.Text})";
-                                body.Add(new Label(metricLine) { style = { opacity = 0.8f, whiteSpace = WhiteSpace.Normal } });
-                            }
-                        }
-                    }
-                }
+                _inspectorSummaryLabel.text = $"Tick #{frame.TickIndex} | Root={frame.RootStatus} | Active={frame.ActiveNodeId ?? "-"}";
+                _inspectorExecutionLabel.text = $"Active Key={frame.ActiveExecutionKey ?? "-"} | Freeze={_runner.DebugFreeze}";
+                _inspectorMetricsLabel.text = frame.ActivePath.Count > 0
+                    ? $"Active Path: {string.Join(" -> ", frame.ActivePath)}"
+                    : "Active Path: -";
+                return;
             }
 
-            body.Add(new Label("Events") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 4 } });
-            if (nodeEvents == null || nodeEvents.Count == 0)
+            var nodeEvents = frame.Events.Where(e => e.NodeId == _selectedNodeId).ToList();
+            var nodeMetrics = frame.Metrics.Where(m => m.NodeId == _selectedNodeId).ToList();
+            var lastEvent = nodeEvents.LastOrDefault();
+
+            if (string.IsNullOrEmpty(lastEvent.NodeId))
             {
-                body.Add(new Label(string.IsNullOrEmpty(nodeId) ? "No events recorded." : "No events for selected node.") { style = { opacity = 0.75f } });
+                _inspectorSummaryLabel.text = $"Tick #{frame.TickIndex} | Selected node has no runtime event yet.";
+                _inspectorExecutionLabel.text = string.Empty;
+                _inspectorMetricsLabel.text = string.Empty;
+                return;
+            }
+
+            _inspectorSummaryLabel.text = $"Tick #{frame.TickIndex} | Last Status={lastEvent.Status} | Kind={lastEvent.Kind}";
+            _inspectorExecutionLabel.text = $"Execution Key={lastEvent.ExecutionKey ?? "-"} | Reason={lastEvent.Reason}";
+            _inspectorMetricsLabel.text = nodeMetrics.Count > 0
+                ? $"Metrics: {string.Join(" | ", nodeMetrics.Take(3).Select(m => $"{m.Key}={m.Value:0.###}"))}"
+                : "Metrics: -";
+        }
+
+        private void UpdateDebugView()
+        {
+            UpdateDebugToolbarState();
+            UpdateInspectorDebugSummary();
+            RebuildDebugTabContent();
+        }
+
+        private void UpdateDebugToolbarState()
+        {
+            bool hasRunner = _runner != null;
+            bool isPlaying = EditorApplication.isPlaying;
+            bool enabled = hasRunner && isPlaying;
+
+            _freezeButton?.SetEnabled(enabled);
+            _step1Button?.SetEnabled(enabled);
+            _step5Button?.SetEnabled(enabled);
+            _clearHistoryButton?.SetEnabled(hasRunner);
+            _breakpointsEnabledToggle?.SetEnabled(hasRunner);
+            _selectedNodeOnlyToggle?.SetEnabled(enabled);
+
+            if (_freezeButton != null)
+                _freezeButton.text = hasRunner && _runner.DebugFreeze ? "Resume" : "Freeze";
+
+            if (_breakpointsEnabledToggle != null && hasRunner)
+                _breakpointsEnabledToggle.SetValueWithoutNotify(_runner.DebugBreakpointsEnabled);
+
+            if (_debugRuntimeStateLabel == null)
+                return;
+
+            if (!hasRunner)
+            {
+                _debugRuntimeStateLabel.text = "Runner를 Attach 하면 하단 Debug 패널에서 전체 런타임 흐름을 확인할 수 있습니다.";
+                return;
+            }
+
+            if (!isPlaying)
+            {
+                _debugRuntimeStateLabel.text = "Play Mode에서 Events / Metrics / History / Breakpoints 탭이 활성화됩니다.";
+                return;
+            }
+
+            var frame = _runner.DebugLastFrame;
+            if (frame == null)
+            {
+                _debugRuntimeStateLabel.text = $"Freeze={_runner.DebugFreeze} | Breakpoints={_runner.DebugBreakpointsEnabled} | Waiting for first debug frame...";
+                return;
+            }
+
+            _debugRuntimeStateLabel.text =
+                $"Tick #{frame.TickIndex} | Root={frame.RootStatus} | Active={frame.ActiveNodeId ?? "-"} | ActiveKey={frame.ActiveExecutionKey ?? "-"} | Freeze={_runner.DebugFreeze}";
+        }
+
+        private void RebuildDebugTabContent()
+        {
+            if (_debugTabContent == null)
+                return;
+
+            _debugTabContent.Clear();
+
+            if (_runner == null)
+            {
+                _debugTabContent.Add(new Label("Attach Runner to see debug data.") { style = { opacity = 0.75f } });
+                return;
+            }
+
+            if (!EditorApplication.isPlaying)
+            {
+                _debugTabContent.Add(new Label("Enter Play Mode to populate runtime debug data.") { style = { opacity = 0.75f } });
+                _debugTabContent.Add(BuildBreakpointsOverview());
+                return;
+            }
+
+            switch (_debugTab)
+            {
+                case "Events":
+                    _debugTabContent.Add(BuildDebugEventsList());
+                    break;
+                case "Metrics":
+                    _debugTabContent.Add(BuildDebugMetricsList());
+                    break;
+                case "History":
+                    _debugTabContent.Add(BuildDebugHistoryList());
+                    break;
+                case "Breakpoints":
+                    _debugTabContent.Add(BuildBreakpointsOverview());
+                    break;
+                default:
+                    _debugTabContent.Add(BuildOverviewPanel());
+                    break;
+            }
+        }
+
+        private VisualElement BuildOverviewPanel()
+        {
+            var root = new ScrollView(ScrollViewMode.Vertical);
+            var frame = _runner.DebugLastFrame;
+            if (frame == null)
+            {
+                root.Add(new Label("No debug frame captured yet.") { style = { opacity = 0.75f } });
+                return root;
+            }
+
+            root.Add(CreateInfoBox("Frame", $"TickIndex: {frame.TickIndex}\nRoot: {frame.RootNodeId}\nRootStatus: {frame.RootStatus}\nTime: {frame.Time:0.###}"));
+            root.Add(CreateInfoBox("Active", $"Node: {frame.ActiveNodeId ?? "-"}\nExecution Key: {frame.ActiveExecutionKey ?? "-"}\nFreeze: {_runner.DebugFreeze}"));
+
+            string activePath = frame.ActivePath.Count > 0 ? string.Join(" -> ", frame.ActivePath) : "-";
+            string executionPath = frame.ActiveExecutionPath.Count > 0 ? string.Join(" -> ", frame.ActiveExecutionPath) : "-";
+            root.Add(CreateInfoBox("Paths", $"Active Path: {activePath}\nExecution Path: {executionPath}"));
+
+            var breakInfo = _runner.DebugLastBreakInfo;
+            if (breakInfo.IsValid)
+            {
+                root.Add(CreateInfoBox("Last Break", $"Tick: {breakInfo.TickIndex}\nNode: {breakInfo.NodeId}\nStatus: {breakInfo.Status}\nReason: {breakInfo.Reason}\nSummary: {breakInfo.Summary}"));
             }
             else
             {
-                foreach (var ev in nodeEvents)
-                {
-                    string line = $"[{ev.Kind}] {ev.Title} => {ev.Status}";
-                    if (!string.IsNullOrEmpty(ev.ExecutionKey))
-                        line += $" | Key={ev.ExecutionKey}";
-                    if (ev.Reason != BtDebugReason.None)
-                        line += $" ({ev.Reason})";
-                    if (!string.IsNullOrEmpty(ev.Summary))
-                        line += $" | {ev.Summary}";
-                    body.Add(new Label(line) { style = { opacity = 0.92f, whiteSpace = WhiteSpace.Normal } });
-                }
+                root.Add(CreateInfoBox("Last Break", "No breakpoint matched yet."));
             }
 
-            body.Add(new Label("Metrics") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 8 } });
-            if (nodeMetrics == null || nodeMetrics.Count == 0)
-            {
-                body.Add(new Label(string.IsNullOrEmpty(nodeId) ? "No metrics recorded." : "No metrics for selected node.") { style = { opacity = 0.75f } });
-            }
-            else
-            {
-                foreach (var m in nodeMetrics)
-                {
-                    string line = $"{m.Key}: {m.Value:0.###}";
-                    if (!string.IsNullOrEmpty(m.ExecutionKey))
-                        line += $" | Key={m.ExecutionKey}";
-                    if (!string.IsNullOrEmpty(m.Text))
-                        line += $" ({m.Text})";
-                    body.Add(new Label(line) { style = { opacity = 0.9f } });
-                }
-            }
+            return root;
+        }
 
-            body.Add(new Label("Recent Frames") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginTop = 8 } });
+        private VisualElement BuildDebugEventsList()
+        {
+            var rows = GetFilteredEvents()
+                .Select(ev => new DebugRowData
+                {
+                    Col1 = ev.Kind.ToString(),
+                    Col2 = string.IsNullOrEmpty(ev.NodeId) ? "-" : ev.NodeId,
+                    Col3 = ev.Status.ToString(),
+                    Col4 = string.IsNullOrEmpty(ev.ExecutionKey) ? "-" : ev.ExecutionKey,
+                    Col5 = BuildEventSummary(ev),
+                })
+                .ToList();
+
+            var view = CreateDebugListView(
+                rows,
+                "Kind", "Node", "Status", "ExecutionKey", "Summary",
+                out _eventsListView);
+
+            return WrapListView(view, rows.Count == 0 ? "No events recorded for current filter." : null);
+        }
+
+        private VisualElement BuildDebugMetricsList()
+        {
+            var rows = GetFilteredMetrics()
+                .Select(metric => new DebugRowData
+                {
+                    Col1 = string.IsNullOrEmpty(metric.NodeId) ? "-" : metric.NodeId,
+                    Col2 = metric.Key,
+                    Col3 = metric.Value.ToString("0.###"),
+                    Col4 = string.IsNullOrEmpty(metric.ExecutionKey) ? "-" : metric.ExecutionKey,
+                    Col5 = string.IsNullOrEmpty(metric.Text) ? "-" : metric.Text,
+                })
+                .ToList();
+
+            var view = CreateDebugListView(
+                rows,
+                "Node", "Key", "Value", "ExecutionKey", "Text",
+                out _metricsListView);
+
+            return WrapListView(view, rows.Count == 0 ? "No metrics recorded for current filter." : null);
+        }
+
+        private VisualElement BuildDebugHistoryList()
+        {
             var history = _runner.DebugHistory;
-            if (history == null || history.Count == 0)
+            var rows = new List<DebugRowData>();
+            if (history != null)
             {
-                body.Add(new Label("No frame history.") { style = { opacity = 0.75f } });
-            }
-            else
-            {
-                int start = Mathf.Max(0, history.Count - 10);
-                for (int i = history.Count - 1; i >= start; i--)
+                for (int i = history.Count - 1; i >= 0; i--)
                 {
-                    var hist = history[i];
-                    string line = $"#{hist.TickIndex} | Root={hist.RootStatus} | Active={hist.ActiveNodeId ?? "-"}";
-                    if (!string.IsNullOrEmpty(nodeId))
+                    var frame = history[i];
+                    BtDebugEvent nodeEvent = default;
+                    if (!string.IsNullOrEmpty(_selectedNodeId))
+                        nodeEvent = frame.Events.LastOrDefault(e => e.NodeId == _selectedNodeId);
+
+                    rows.Add(new DebugRowData
                     {
-                        var lastNodeEvent = hist.Events.LastOrDefault(e => e.NodeId == nodeId);
-                        if (!string.IsNullOrEmpty(lastNodeEvent.NodeId))
-                            line += $" | Node={lastNodeEvent.Status}";
-                    }
-                    body.Add(new Label(line) { style = { opacity = 0.85f } });
+                        Col1 = frame.TickIndex.ToString(),
+                        Col2 = frame.RootStatus.ToString(),
+                        Col3 = frame.ActiveNodeId ?? "-",
+                        Col4 = frame.ActiveExecutionKey ?? "-",
+                        Col5 = !string.IsNullOrEmpty(nodeEvent.NodeId)
+                            ? $"Selected={nodeEvent.Status} | {nodeEvent.Summary}"
+                            : (frame.ActivePath.Count > 0 ? string.Join(" -> ", frame.ActivePath) : "-"),
+                    });
                 }
             }
 
-            var debugScroll = new ScrollView(ScrollViewMode.Vertical)
+            var view = CreateDebugListView(
+                rows,
+                "Tick", "Root", "Active Node", "ExecutionKey", "Summary",
+                out _historyListView);
+
+            return WrapListView(view, rows.Count == 0 ? "No frame history." : null);
+        }
+
+        private VisualElement BuildBreakpointsOverview()
+        {
+            var root = new VisualElement { style = { flexGrow = 1, flexDirection = FlexDirection.Column } };
+
+            if (_asset == null)
+            {
+                root.Add(new Label("No asset selected."));
+                return root;
+            }
+
+            var rows = new List<DebugRowData>();
+            foreach (var node in _asset.nodes)
+            {
+                if (node == null || string.IsNullOrEmpty(node.id))
+                    continue;
+
+                var breakpoint = default(BtDebugBreakpoint);
+                bool hasBreakpoint = _runner != null && _runner.TryGetBreakpoint(node.id, out breakpoint) && !breakpoint.IsEmpty;
+                rows.Add(new DebugRowData
+                {
+                    Col1 = node.title,
+                    Col2 = node.id,
+                    Col3 = hasBreakpoint ? "Configured" : "-",
+                    Col4 = hasBreakpoint ? BuildBreakpointFlags(breakpoint) : "-",
+                    Col5 = node.typeId,
+                });
+            }
+
+            var view = CreateDebugListView(rows, "Title", "Node", "State", "Flags", "Type", out _breakpointsListView);
+            root.Add(WrapListView(view, rows.Count == 0 ? "No nodes available." : null));
+            return root;
+        }
+
+        private VisualElement CreateDebugListView(IList<DebugRowData> rows, string h1, string h2, string h3, string h4, string h5, out ListView listView)
+        {
+            var container = new VisualElement { style = { flexGrow = 1, flexDirection = FlexDirection.Column } };
+            container.Add(BuildListHeader(h1, h2, h3, h4, h5));
+
+            listView = new ListView
+            {
+                itemsSource = (System.Collections.IList)rows,
+                makeItem = MakeDebugRow,
+                bindItem = (element, index) => BindDebugRow(element, index, rows),
+                fixedItemHeight = 22,
+                selectionType = SelectionType.None,
+                style = { flexGrow = 1 }
+            };
+            container.Add(listView);
+            return container;
+        }
+
+        private VisualElement BuildListHeader(string h1, string h2, string h3, string h4, string h5)
+        {
+            var row = new VisualElement
             {
                 style =
                 {
-                    maxHeight = 320,
-                    marginTop = 4
+                    flexDirection = FlexDirection.Row,
+                    height = 22,
+                    unityFontStyleAndWeight = FontStyle.Bold,
+                    borderBottomWidth = 1,
+                    borderBottomColor = new Color(0f, 0f, 0f, 0.2f),
+                    marginBottom = 2,
                 }
             };
-            debugScroll.horizontalScrollerVisibility = ScrollerVisibility.Hidden;
-            debugScroll.verticalScrollerVisibility = ScrollerVisibility.Auto;
-            debugScroll.Add(body);
+            row.Add(CreateCell(h1, 90, true));
+            row.Add(CreateCell(h2, 150, true));
+            row.Add(CreateCell(h3, 80, true));
+            row.Add(CreateCell(h4, 180, true));
+            row.Add(CreateCell(h5, 0, true, true));
+            return row;
+        }
 
-            fold.Add(debugScroll);
-            return fold;
+        private VisualElement MakeDebugRow()
+        {
+            var row = new VisualElement
+            {
+                style =
+                {
+                    flexDirection = FlexDirection.Row,
+                    height = 22,
+                }
+            };
+            row.Add(CreateCell(string.Empty, 90));
+            row.Add(CreateCell(string.Empty, 150));
+            row.Add(CreateCell(string.Empty, 80));
+            row.Add(CreateCell(string.Empty, 180));
+            row.Add(CreateCell(string.Empty, 0, false, true));
+            return row;
+        }
+
+        private void BindDebugRow(VisualElement element, int index, IList<DebugRowData> rows)
+        {
+            if (rows == null || index < 0 || index >= rows.Count)
+                return;
+
+            var row = rows[index];
+            SetCellText(element, 0, row.Col1);
+            SetCellText(element, 1, row.Col2);
+            SetCellText(element, 2, row.Col3);
+            SetCellText(element, 3, row.Col4);
+            SetCellText(element, 4, row.Col5);
+        }
+
+        private static Label CreateCell(string text, float width, bool bold = false, bool grow = false)
+        {
+            var label = new Label(text)
+            {
+                style =
+                {
+                    unityFontStyleAndWeight = bold ? FontStyle.Bold : FontStyle.Normal,
+                    whiteSpace = WhiteSpace.NoWrap,
+                    overflow = Overflow.Hidden,
+                    textOverflow = TextOverflow.Ellipsis,
+                    paddingLeft = 4,
+                    paddingRight = 4,
+                }
+            };
+
+            if (grow)
+            {
+                label.style.flexGrow = 1;
+            }
+            else
+            {
+                label.style.width = width;
+                label.style.flexShrink = 0;
+            }
+
+            return label;
+        }
+
+        private static void SetCellText(VisualElement row, int index, string text)
+        {
+            if (index < 0 || index >= row.childCount)
+                return;
+
+            if (row[index] is Label label)
+                label.text = text ?? string.Empty;
+        }
+
+        private VisualElement WrapListView(VisualElement view, string emptyMessage)
+        {
+            var root = new VisualElement { style = { flexGrow = 1, flexDirection = FlexDirection.Column } };
+            root.Add(view);
+
+            if (!string.IsNullOrEmpty(emptyMessage))
+            {
+                root.Add(new Label(emptyMessage)
+                {
+                    style =
+                    {
+                        opacity = 0.75f,
+                        marginTop = 4,
+                    }
+                });
+            }
+
+            return root;
+        }
+
+        private VisualElement CreateInfoBox(string title, string content)
+        {
+            var box = new VisualElement
+            {
+                style =
+                {
+                    marginBottom = 6,
+                    paddingLeft = 8,
+                    paddingRight = 8,
+                    paddingTop = 6,
+                    paddingBottom = 6,
+                    borderTopWidth = 1,
+                    borderBottomWidth = 1,
+                    borderLeftWidth = 1,
+                    borderRightWidth = 1,
+                    borderTopColor = new Color(0f, 0f, 0f, 0.15f),
+                    borderBottomColor = new Color(0f, 0f, 0f, 0.15f),
+                    borderLeftColor = new Color(0f, 0f, 0f, 0.15f),
+                    borderRightColor = new Color(0f, 0f, 0f, 0.15f),
+                }
+            };
+            box.Add(new Label(title) { style = { unityFontStyleAndWeight = FontStyle.Bold } });
+            box.Add(new Label(content) { style = { whiteSpace = WhiteSpace.Normal, marginTop = 2 } });
+            return box;
+        }
+
+        private string BuildBreakpointFlags(BtDebugBreakpoint breakpoint)
+        {
+            var flags = new List<string>(4);
+            if (breakpoint.BreakOnVisit) flags.Add("Visit");
+            if (breakpoint.BreakOnSuccess) flags.Add("Success");
+            if (breakpoint.BreakOnFailure) flags.Add("Failure");
+            if (breakpoint.BreakOnRunning) flags.Add("Running");
+            return flags.Count > 0 ? string.Join(", ", flags) : "-";
+        }
+
+        private string BuildEventSummary(BtDebugEvent ev)
+        {
+            string summary = string.IsNullOrEmpty(ev.Summary) ? string.Empty : ev.Summary;
+            if (ev.Reason != BtDebugReason.None)
+            {
+                if (!string.IsNullOrEmpty(summary))
+                    summary += " | ";
+                summary += ev.Reason;
+            }
+
+            return string.IsNullOrEmpty(summary) ? (ev.Title ?? "-") : summary;
+        }
+
+        private List<BtDebugEvent> GetFilteredEvents()
+        {
+            var frame = _runner.DebugLastFrame;
+            if (frame == null)
+                return new List<BtDebugEvent>();
+
+            IEnumerable<BtDebugEvent> query = frame.Events;
+            if (_selectedNodeOnlyToggle != null && _selectedNodeOnlyToggle.value && !string.IsNullOrEmpty(_selectedNodeId))
+                query = query.Where(e => e.NodeId == _selectedNodeId);
+
+            return query.ToList();
+        }
+
+        private List<BtDebugMetric> GetFilteredMetrics()
+        {
+            var frame = _runner.DebugLastFrame;
+            if (frame == null)
+                return new List<BtDebugMetric>();
+
+            IEnumerable<BtDebugMetric> query = frame.Metrics;
+            if (_selectedNodeOnlyToggle != null && _selectedNodeOnlyToggle.value && !string.IsNullOrEmpty(_selectedNodeId))
+                query = query.Where(m => m.NodeId == _selectedNodeId);
+
+            return query.ToList();
         }
 
         private VisualElement BuildBreakpointEditor(string nodeId)
@@ -906,7 +1373,8 @@ namespace GGemCo2DAiBtEditor
             {
                 _runner.RemoveBreakpoint(nodeId);
                 _graphView?.ApplyDebug(_runner);
-                RefreshInspector(nodeId);
+                UpdateInspectorDebugSummary();
+                UpdateDebugView();
                 Repaint();
             })
             {
@@ -929,7 +1397,7 @@ namespace GGemCo2DAiBtEditor
             breakpoint.NodeId = nodeId;
             _runner.SetBreakpoint(breakpoint);
             _graphView?.ApplyDebug(_runner);
-            RefreshInspector(nodeId);
+            UpdateDebugView();
             Repaint();
         }
 
@@ -958,16 +1426,21 @@ namespace GGemCo2DAiBtEditor
             if (_statusLabel == null) return;
             if (_asset == null) { _statusLabel.text = "No asset selected."; return; }
 
-            _applyTreeToRunnerButton?.SetEnabled(_runner != null && _asset != null);
-
-            _applyTreeToRunnerButton?.SetEnabled(_runner != null && _asset != null);
-
             _statusLabel.text = string.IsNullOrEmpty(message)
                 ? $"Asset: {_asset.name} | Nodes: {_asset.nodes.Count}"
                 : $"Asset: {_asset.name} | {message}";
         }
 
         public void MarkDirty(string reason) => UpdateStatus(reason);
+
+        private sealed class DebugRowData
+        {
+            public string Col1;
+            public string Col2;
+            public string Col3;
+            public string Col4;
+            public string Col5;
+        }
     }
 }
 #endif
