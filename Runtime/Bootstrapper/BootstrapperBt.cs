@@ -2,7 +2,6 @@
 using GGemCo2DCore;
 using UnityEngine;
 using GGemCo2DSkill;
-using GGemCo2DSkillEditor;
 
 namespace GGemCo2DAiBt
 {
@@ -60,13 +59,6 @@ namespace GGemCo2DAiBt
                     monsterSkillDriverAdapter = ch.gameObject.AddComponent<MonsterSkillDriverAdapter>();
                 
                 monsterSkillDriverAdapter.SetSkillExecutor(skillExecutor);
-                
-                if (AddressableLoaderSettingsAiBt.Instance.aiBtSettings.EnableDebug)
-                {
-                    var skillDamageAreaGizmo = ch.gameObject.GetComponent<SkillDamageAreaGizmo>();
-                    if (skillDamageAreaGizmo == null)
-                        ch.gameObject.AddComponent<SkillDamageAreaGizmo>();
-                }
             }
         }
 
