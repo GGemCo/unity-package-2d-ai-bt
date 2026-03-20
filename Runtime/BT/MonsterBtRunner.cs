@@ -1170,7 +1170,7 @@ namespace GGemCo2DAiBt
                         var forward = new Vector2(raw.x, raw.y);
 
                         var startResult = feedback.TryUseSkill(skillUid, new MonsterSkillTarget(targetTr, ground, forward));
-                        if (startResult != SkillUseResult.Started)
+                        if (startResult.IsStarted)
                         {
                             AddEvent(node.id, executionKey, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.InvalidParameter, $"skillUid={skillUid}, result={startResult}");
                             return BtStatus.Failure;
@@ -1256,7 +1256,7 @@ namespace GGemCo2DAiBt
                     var forward = new Vector2(raw.x, raw.y);
 
                     var st = ctx.SkillDriver.TryUseSkill(skillUid, new MonsterSkillTarget(targetTr, ground, forward));
-                    if (st == SkillUseResult.Started)
+                    if (st.IsStarted)
                     {
                         // 성공(Started) 시에만 1회 증가
                         ctx.Blackboard?.IncrementSkillUseCount(skillUid);
