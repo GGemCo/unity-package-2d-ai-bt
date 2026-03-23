@@ -1170,7 +1170,7 @@ namespace GGemCo2DAiBt
                         var forward = new Vector2(raw.x, raw.y);
 
                         var startResult = feedback.TryUseSkill(skillUid, new MonsterSkillTarget(targetTr, ground, forward));
-                        if (startResult.IsStarted)
+                        if (!startResult.IsStarted)
                         {
                             AddEvent(node.id, executionKey, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.InvalidParameter, $"skillUid={skillUid}, result={startResult}");
                             return BtStatus.Failure;
