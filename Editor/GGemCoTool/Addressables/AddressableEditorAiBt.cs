@@ -68,7 +68,7 @@ namespace GGemCo2DAiBtEditor
                 _scrollPosition = scroll.scrollPosition;
 
                 // 구성 순서 의존성을 사용자에게 안내
-                EditorGUILayout.HelpBox("캐릭터 추가 후 맵을 추가해야 맵별 배치되어있는 캐릭터 정보가 반영됩니다.", MessageType.Info);
+                // EditorGUILayout.HelpBox("", MessageType.Info);
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
