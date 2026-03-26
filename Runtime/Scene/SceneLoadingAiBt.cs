@@ -39,9 +39,10 @@ namespace GGemCo2DAiBt
         {
             // GcLogger.Log($"GameLoaderManagerControl RegisterSteps");
             // 설정 스크립터블 오브젝트 
-            var addrSettings = Object.FindFirstObjectByType<AddressableLoaderSettingsAiBt>() ??
+            var addrSettings = CompatObjectFind.FindFirst<AddressableLoaderSettingsAiBt>() ??
                                new GameObject("AddressableLoaderSettingsAiBt")
                                    .AddComponent<AddressableLoaderSettingsAiBt>();
+            
             var step = new AddressableTaskStep(
                 id: "aibt.settings",
                 order: 250,
