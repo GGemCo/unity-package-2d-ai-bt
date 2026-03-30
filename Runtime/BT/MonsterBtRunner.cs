@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using GGemCo2DCore;
@@ -71,6 +71,7 @@ namespace GGemCo2DAiBt
         private IMonsterCombatDriver _driver;
         private IMonsterSkillDriver _skillDriver;
         private IMonsterBrainSuspendProvider _suspendProvider;
+        private CharacterBase _ownerCharacterBase;
 
         private bool _isExecuting;
         private bool _breakTriggeredThisTick;
@@ -218,6 +219,7 @@ namespace GGemCo2DAiBt
         private void Awake()
         {
             RebuildCache();
+            _ownerCharacterBase = GetComponent<CharacterBase>();
 
             var aiBtSettings = AddressableLoaderSettingsAiBt.Instance.aiBtSettings;
             if (GcLogger.IsNull(aiBtSettings, $"{nameof(GGemCoAiBtSettings)}이 설정되어 있지 않습니다."))
@@ -316,8 +318,13 @@ namespace GGemCo2DAiBt
                 _skillDriver = GetComponent<IMonsterSkillDriver>();
             if (_suspendProvider == null)
                 _suspendProvider = GetComponent<IMonsterBrainSuspendProvider>();
+            if (_ownerCharacterBase == null)
+                _ownerCharacterBase = GetComponent<CharacterBase>();
 
             if (_driver == null) return;
+
+            // 히트 스톱 중에는 BT 시간 진행 자체를 멈춘다.
+            if (_ownerCharacterBase != null && _ownerCharacterBase.IsHitStopped) return;
 
             // 그로기/기절/컷씬 등으로 Brain 평가를 중지해야 하는 경우, 이번 틱은 스킵한다.
             if (_suspendProvider != null && _suspendProvider.ShouldSuspendBrain) return;
