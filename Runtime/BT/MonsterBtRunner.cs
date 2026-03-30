@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using GGemCo2DCore;
@@ -16,7 +16,7 @@ namespace GGemCo2DAiBt
     /// - Core 패키지는 본 BT 패키지를 참조하지 않는다(의존성 단방향).
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable
+    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle
     {
         private MonsterBehaviorTreeAsset _treeAsset;
 
@@ -245,6 +245,37 @@ namespace GGemCo2DAiBt
         private void OnEnable()
         {
             _nextTickTime = 0f;
+        }
+
+        public void ResetForPoolReturn()
+        {
+            _hasPendingTreeChange = false;
+            _pendingTreeAsset = null;
+            _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
+            _isExecuting = false;
+            _breakTriggeredThisTick = false;
+            _debugStepRequestCount = 0;
+            _nextTickTime = 0f;
+            DebugFreeze = false;
+            DebugLastBreakInfo = default;
+            DebugActiveNodeId = null;
+            DebugActiveExecutionKey = null;
+            _driver = null;
+            _skillDriver = null;
+            _suspendProvider = null;
+            ClearDebugHistory();
+            RebuildCache();
+            enabled = false;
+        }
+
+        public void OnPoolRent(Monster owner)
+        {
+            ResetForPoolReturn();
+        }
+
+        public void OnPoolReturn(Monster owner)
+        {
+            ResetForPoolReturn();
         }
 
         private void OnValidate()
