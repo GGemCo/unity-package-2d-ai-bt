@@ -16,7 +16,7 @@ namespace GGemCo2DAiBt
     /// - Core 패키지는 본 BT 패키지를 참조하지 않는다(의존성 단방향).
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle
+    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle, IMonsterBrainRuntimeResettable
     {
         private MonsterBehaviorTreeAsset _treeAsset;
 
@@ -77,6 +77,7 @@ namespace GGemCo2DAiBt
         private bool _breakTriggeredThisTick;
         private int _debugStepRequestCount;
         private bool _hasPendingTreeChange;
+        private bool _hasPendingRuntimeResetForCulling;
         private MonsterBehaviorTreeAsset _pendingTreeAsset;
         private BtTreeSwitchMode _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
 
@@ -114,6 +115,24 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
+        /// 컬링 Fade In 복귀 시점에 BT 런타임 상태를 초기화한다.
+        /// </summary>
+        /// <remarks>
+        /// 트리 에셋은 유지하고 런타임 캐시/블랙보드/노드 상태만 초기화한다.
+        /// 실행 중 호출되면 현재 틱 종료 후 안전하게 지연 적용한다.
+        /// </remarks>
+        public void ResetRuntimeForCulling()
+        {
+            if (_isExecuting)
+            {
+                _hasPendingRuntimeResetForCulling = true;
+                return;
+            }
+
+            ApplyRuntimeResetForCulling();
+        }
+
+        /// <summary>
         /// BT 교체 시 런타임 상태 보존 정책.
         /// </summary>
         public enum BtTreeSwitchMode
@@ -126,6 +145,16 @@ namespace GGemCo2DAiBt
 
             /// <summary>블랙보드의 공통 키 값 + 스킬 사용 횟수 캐시를 유지한다.</summary>
             PreserveBlackboardAndSkillUseCounts = 2,
+        }
+
+        /// <summary>
+        /// 컬링 정책으로 요청된 런타임 초기화를 실제 반영한다.
+        /// </summary>
+        private void ApplyRuntimeResetForCulling()
+        {
+            RebuildCache();
+            _nextTickTime = 0f;
+            _hasPendingRuntimeResetForCulling = false;
         }
 
         public void SetDebugFreeze(bool freeze)
@@ -252,6 +281,7 @@ namespace GGemCo2DAiBt
         public void ResetForPoolReturn()
         {
             _hasPendingTreeChange = false;
+            _hasPendingRuntimeResetForCulling = false;
             _pendingTreeAsset = null;
             _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
             _isExecuting = false;
@@ -305,6 +335,11 @@ namespace GGemCo2DAiBt
             if (_hasPendingTreeChange)
             {
                 ApplyTreeChange(_pendingTreeAsset, _pendingSwitchMode);
+            }
+
+            if (_hasPendingRuntimeResetForCulling)
+            {
+                ApplyRuntimeResetForCulling();
             }
 
             if (!IsActive) return;
