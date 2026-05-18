@@ -1150,7 +1150,7 @@ namespace GGemCo2DAiBt
 
                 case BtTypeIds.Action.MoveToTarget:
                 {
-                    var st = ctx.MoveToTarget(out var failReason, out var detail);
+                    var st = ctx.MoveToTarget(node, executionKey, out var failReason, out var detail);
                     AddEvent(node.id, executionKey, BtDebugEventKind.Action, "MoveToTarget", st, failReason, detail);
                     return st;
                 }
@@ -1445,24 +1445,69 @@ namespace GGemCo2DAiBt
             }
 
             /// <summary>
-            /// 타겟 방향 이동을 요청하고, 실패 시 원인을 디버그 코드로 함께 반환한다.
+            /// 타겟 추적 이동을 수행한다.
             /// </summary>
+            /// <param name="node">현재 MoveToTarget 노드 레코드.</param>
+            /// <param name="executionKey">현재 실행 키.</param>
             /// <param name="failureReason">액션 실패/관측 사유 코드.</param>
             /// <param name="detail">디버그 상세 메시지.</param>
-            /// <returns>이동 요청 처리 결과 상태.</returns>
-            public BtStatus MoveToTarget(out BtDebugReason failureReason, out string detail)
+            /// <returns>이동/정지/재평가 처리 결과 상태.</returns>
+            /// <remarks>
+            /// - 공격 범위 진입 시 즉시 이동을 멈추고, 필요하면 루트 재평가를 1회만 요청한다.
+            /// - 추적 허용 거리(give-up distance)를 넘으면 이동을 중단하고 실패를 반환한다.
+            /// </remarks>
+            public BtStatus MoveToTarget(BtNodeRecord node, string executionKey, out BtDebugReason failureReason, out string detail)
             {
                 failureReason = BtDebugReason.None;
                 detail = "Move request pending";
 
+                var nodeState = Runtime.GetOrCreateNodeState(executionKey, node.id);
+
                 if (!Driver.TryGetTarget(out var target) || target == null)
                 {
+                    nodeState.MoveInAttackRangeLastTick = false;
                     failureReason = BtDebugReason.NoTarget;
                     detail = "target missing";
                     return BtStatus.Failure;
                 }
 
-                Vector3 raw = (target.position - Owner.transform.position);
+                bool inAttackRange = Driver.IsTargetInAttackRange();
+                bool stopOnAttackRange = GetBoolParam(node, "stopOnAttackRange", fallback: true);
+                bool restartOnAttackRange = GetBoolParam(node, "restartOnAttackRange", fallback: true);
+                if (inAttackRange)
+                {
+                    if (stopOnAttackRange)
+                        Driver.RequestWait();
+
+                    bool requestedNow = false;
+                    if (restartOnAttackRange && !nodeState.MoveInAttackRangeLastTick)
+                    {
+                        string reason = "MoveToTarget reached attack range";
+                        Runtime.RequestRestartRoot(node.id, executionKey, reason);
+                        requestedNow = true;
+                    }
+
+                    nodeState.MoveInAttackRangeLastTick = true;
+                    failureReason = requestedNow ? BtDebugReason.RootRestartRequested : BtDebugReason.None;
+                    detail = requestedNow
+                        ? "in attack range. stop + restart root requested"
+                        : "in attack range. stop and keep current root state";
+                    return BtStatus.Success;
+                }
+
+                nodeState.MoveInAttackRangeLastTick = false;
+
+                float distance = Vector3.Distance(Owner.transform.position, target.position);
+                float giveUpDistance = ResolveMoveGiveUpDistance(node);
+                if (giveUpDistance > 0f && distance > giveUpDistance)
+                {
+                    Driver.RequestWait();
+                    failureReason = BtDebugReason.OutOfRange;
+                    detail = $"target too far. distance={distance:0.###}, giveUpDistance={giveUpDistance:0.###}";
+                    return BtStatus.Failure;
+                }
+
+                Vector3 raw = target.position - Owner.transform.position;
                 Vector2 dir = new Vector2(raw.x, raw.y);
                 if (dir.sqrMagnitude <= 0.000001f)
                 {
@@ -1472,13 +1517,40 @@ namespace GGemCo2DAiBt
 
                 if (Driver.TryRequestMove(dir, out var moveFailure))
                 {
-                    detail = $"status=Running, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
+                    detail = $"status=Running, distance={distance:0.###}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
                     return BtStatus.Running;
                 }
 
                 failureReason = ConvertMoveFailureToDebugReason(moveFailure);
-                detail = $"move rejected. reason={moveFailure}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
+                detail = $"move rejected. reason={moveFailure}, distance={distance:0.###}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
                 return BtStatus.Failure;
+            }
+
+            /// <summary>
+            /// MoveToTarget의 추적 포기 거리를 해석한다.
+            /// </summary>
+            /// <param name="node">현재 MoveToTarget 노드 레코드.</param>
+            /// <returns>
+            /// 0보다 크면 추적 포기 거리(월드 단위), 0 이하면 거리 제한 미사용.
+            /// </returns>
+            /// <remarks>
+            /// 우선순위:
+            /// 1) 노드 파라미터 `giveUpDistance`
+            /// 2) 블랙보드 키(`giveUpDistanceKey`, 기본값: ChaseGiveUpRange)
+            /// </remarks>
+            private float ResolveMoveGiveUpDistance(BtNodeRecord node)
+            {
+                float explicitDistance = GetFloatParam(node, "giveUpDistance", fallback: -1f);
+                if (explicitDistance > 0f)
+                    return explicitDistance;
+
+                string key = GetStringParam(node, "giveUpDistanceKey", fallback: "ChaseGiveUpRange");
+                if (!string.IsNullOrEmpty(key) && Blackboard != null && Blackboard.TryGetFloat(key, out float fromBlackboard))
+                {
+                    return Mathf.Max(0f, fromBlackboard);
+                }
+
+                return -1f;
             }
 
             /// <summary>

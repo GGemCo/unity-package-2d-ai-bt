@@ -13,6 +13,10 @@ namespace GGemCo2DAiBt
         public float StartTime;
         public bool SkillStarted;
         public int RunningSkillUid;
+        /// <summary>
+        /// 직전 틱에 MoveToTarget이 공격 범위 진입 상태였는지 기록한다.
+        /// </summary>
+        public bool MoveInAttackRangeLastTick;
     }
 
     internal sealed class BtRuntimeState
@@ -84,7 +88,8 @@ namespace GGemCo2DAiBt
                     SelectedChildIndex = -1,
                     StartTime = 0f,
                     SkillStarted = false,
-                    RunningSkillUid = 0
+                    RunningSkillUid = 0,
+                    MoveInAttackRangeLastTick = false,
                 };
                 NodeStates[executionKey] = st;
             }

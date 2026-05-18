@@ -143,6 +143,13 @@ namespace GGemCo2DAiBtEditor
                 {
                     new BtParamDef("sec", BtValueType.Float, required: true, defaultValue: 0.2f, min: 0f),
                 },
+                ["Action.MoveToTarget"] = new List<BtParamDef>
+                {
+                    new BtParamDef("stopOnAttackRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("restartOnAttackRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("giveUpDistance", BtValueType.Float, required: false, defaultValue: -1f),
+                    new BtParamDef("giveUpDistanceKey", BtValueType.String, required: false, defaultValue: "ChaseGiveUpRange"),
+                },
                 ["Action.UseSkill"] = new List<BtParamDef>
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
