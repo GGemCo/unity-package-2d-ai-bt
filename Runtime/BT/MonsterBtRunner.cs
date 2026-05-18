@@ -1455,6 +1455,7 @@ namespace GGemCo2DAiBt
             /// <remarks>
             /// - 공격 범위 진입 시 즉시 이동을 멈추고, 필요하면 루트 재평가를 1회만 요청한다.
             /// - 추적 허용 거리(give-up distance)를 넘으면 이동을 중단하고 실패를 반환한다.
+            /// - 이동 적용은 Driver의 프레임 루프가 담당하므로, 여기서는 이동 의도를 전달하고 결과만 판정한다.
             /// </remarks>
             public BtStatus MoveToTarget(BtNodeRecord node, string executionKey, out BtDebugReason failureReason, out string detail)
             {
