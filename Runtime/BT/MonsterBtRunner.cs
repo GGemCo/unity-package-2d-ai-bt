@@ -1150,8 +1150,8 @@ namespace GGemCo2DAiBt
 
                 case BtTypeIds.Action.MoveToTarget:
                 {
-                    var st = ctx.MoveToTarget();
-                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "MoveToTarget", st, st == BtStatus.Failure ? BtDebugReason.NoTarget : BtDebugReason.None, $"status={st}");
+                    var st = ctx.MoveToTarget(out var failReason, out var detail);
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "MoveToTarget", st, failReason, detail);
                     return st;
                 }
 
@@ -1444,14 +1444,63 @@ namespace GGemCo2DAiBt
                 return Vector3.Distance(Owner.transform.position, target.position);
             }
 
-            public BtStatus MoveToTarget()
+            /// <summary>
+            /// 타겟 방향 이동을 요청하고, 실패 시 원인을 디버그 코드로 함께 반환한다.
+            /// </summary>
+            /// <param name="failureReason">액션 실패/관측 사유 코드.</param>
+            /// <param name="detail">디버그 상세 메시지.</param>
+            /// <returns>이동 요청 처리 결과 상태.</returns>
+            public BtStatus MoveToTarget(out BtDebugReason failureReason, out string detail)
             {
-                if (!Driver.TryGetTarget(out var target) || target == null) return BtStatus.Failure;
+                failureReason = BtDebugReason.None;
+                detail = "Move request pending";
+
+                if (!Driver.TryGetTarget(out var target) || target == null)
+                {
+                    failureReason = BtDebugReason.NoTarget;
+                    detail = "target missing";
+                    return BtStatus.Failure;
+                }
+
                 Vector3 raw = (target.position - Owner.transform.position);
                 Vector2 dir = new Vector2(raw.x, raw.y);
-                if (dir.sqrMagnitude <= 0.000001f) return BtStatus.Success;
-                Driver.RequestMove(dir);
-                return BtStatus.Running;
+                if (dir.sqrMagnitude <= 0.000001f)
+                {
+                    detail = "already at target";
+                    return BtStatus.Success;
+                }
+
+                if (Driver.TryRequestMove(dir, out var moveFailure))
+                {
+                    detail = $"status=Running, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
+                    return BtStatus.Running;
+                }
+
+                failureReason = ConvertMoveFailureToDebugReason(moveFailure);
+                detail = $"move rejected. reason={moveFailure}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
+                return BtStatus.Failure;
+            }
+
+            /// <summary>
+            /// Core 이동 거부 코드를 BT 디버그 코드로 변환한다.
+            /// </summary>
+            /// <param name="reason">Core 이동 거부 코드.</param>
+            /// <returns>BT 디버그 이벤트에 기록할 사유 코드.</returns>
+            private static BtDebugReason ConvertMoveFailureToDebugReason(MonsterMoveRequestFailureReason reason)
+            {
+                return reason switch
+                {
+                    MonsterMoveRequestFailureReason.None => BtDebugReason.None,
+                    MonsterMoveRequestFailureReason.ZeroDirection => BtDebugReason.MoveBlockedByDirection,
+                    MonsterMoveRequestFailureReason.AxisLocked => BtDebugReason.MoveBlockedByDirection,
+                    MonsterMoveRequestFailureReason.StatusDontMove => BtDebugReason.MoveBlockedByStatus,
+                    MonsterMoveRequestFailureReason.StatusAttack => BtDebugReason.MoveBlockedByStatus,
+                    MonsterMoveRequestFailureReason.StatusDead => BtDebugReason.MoveBlockedByStatus,
+                    MonsterMoveRequestFailureReason.SpeedNonPositive => BtDebugReason.MoveBlockedBySpeed,
+                    MonsterMoveRequestFailureReason.CharacterMissing => BtDebugReason.MoveRequestRejected,
+                    MonsterMoveRequestFailureReason.Unknown => BtDebugReason.MoveRequestRejected,
+                    _ => BtDebugReason.MoveRequestRejected,
+                };
             }
 
             public BtStatus WaitForSeconds(string executionKey, float sec)

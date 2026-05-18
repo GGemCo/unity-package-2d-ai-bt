@@ -78,6 +78,14 @@ namespace GGemCo2DAiBt
         RandomPickFailed,
         RootRestartRequested,
         RootRestartApplied,
+        /// <summary>입력 방향/축 제한 문제로 이동이 거부됨.</summary>
+        MoveBlockedByDirection,
+        /// <summary>상태(DontMove/Attack/Dead)로 이동이 거부됨.</summary>
+        MoveBlockedByStatus,
+        /// <summary>이동 속도 계산값이 0 이하라 이동이 거부됨.</summary>
+        MoveBlockedBySpeed,
+        /// <summary>이동 요청이 수락되지 않았으나 세부 사유를 분류하지 못함.</summary>
+        MoveRequestRejected,
         UnknownType,
         BreakpointMatched,
     }
