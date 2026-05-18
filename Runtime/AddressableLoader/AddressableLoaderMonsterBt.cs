@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using GGemCo2DCore;
@@ -9,59 +9,76 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 namespace GGemCo2DAiBt
 {
     /// <summary>
-    /// 몬스터 BT Tree 에셋을 로드하고 <see cref="MonsterBtRunner"/>에 적용한다.
+    /// 몬스터 BT 에셋을 Addressables에서 로드/캐시하는 유틸리티입니다.
     /// </summary>
-    /// <remarks>
-    /// 실무 포인트 반영:
-    /// - 예외 처리: 실패는 로그만 남기고 다음 단계로 진행.
-    /// - 중복 로드 방지: Addressables 핸들 캐시 재사용.
-    /// - 핸들 해제: 맵 언로드 시 <see cref="ReleaseAll"/> 호출.
-    /// </remarks>
     internal static class AddressableLoaderMonsterBt
     {
         private static readonly Dictionary<string, AsyncOperationHandle<MonsterBehaviorTreeAsset>> HandleCache
-            = new(StringComparer.Ordinal);
+            = new Dictionary<string, AsyncOperationHandle<MonsterBehaviorTreeAsset>>(StringComparer.Ordinal);
 
         /// <summary>
-        /// 몬스터 오브젝트에 연결된 BT 에셋을 로드/적용한다.
+        /// BT 키를 로드하여 지정된 러너에 즉시 적용합니다.
         /// </summary>
+        /// <param name="key">Addressables 키입니다.</param>
+        /// <param name="runner">적용 대상 러너입니다.</param>
         public static async Task LoadAndApplyAsync(string key, MonsterBtRunner runner)
         {
-            if (string.IsNullOrEmpty(key)) return;
-
-            // Addressables 로드
-            if (string.IsNullOrWhiteSpace(key)) return;
+            if (string.IsNullOrWhiteSpace(key))
+                return;
 
             try
             {
-                var asset = await LoadByKeyAsync(key);
+                MonsterBehaviorTreeAsset asset = await LoadTreeAssetAsync(key);
                 if (asset != null)
                     runner.SetTree(asset);
             }
             catch (Exception e)
             {
-                // 정책: 실패는 로그만 남기고 진행
+                // 정책: 로드 실패 시 예외를 외부로 던지지 않고 로그만 남깁니다.
                 GcLogger.LogException(e);
             }
         }
 
+        /// <summary>
+        /// BT Addressables 키로 에셋을 로드합니다.
+        /// </summary>
+        /// <param name="key">Addressables 키입니다.</param>
+        /// <returns>로드된 BT 에셋입니다. 실패 시 null을 반환합니다.</returns>
+        public static Task<MonsterBehaviorTreeAsset> LoadTreeAssetAsync(string key)
+        {
+            return LoadByKeyAsync(key);
+        }
+
+        /// <summary>
+        /// BT 에셋을 캐시를 포함해 로드합니다.
+        /// </summary>
+        /// <param name="key">Addressables 키입니다.</param>
+        /// <returns>로드된 BT 에셋입니다. 실패 시 null을 반환합니다.</returns>
         private static async Task<MonsterBehaviorTreeAsset> LoadByKeyAsync(string key)
         {
-            if (string.IsNullOrEmpty(key)) return null;
+            if (string.IsNullOrEmpty(key))
+                return null;
 
-            if (HandleCache.TryGetValue(key, out var cached))
+            if (HandleCache.TryGetValue(key, out AsyncOperationHandle<MonsterBehaviorTreeAsset> cached))
             {
-                // 이미 완료된 경우 즉시 반환
+                // 이미 성공한 핸들이 있으면 즉시 재사용합니다.
                 if (cached.IsValid() && cached.Status == AsyncOperationStatus.Succeeded)
                     return cached.Result;
 
-                // 진행 중/실패한 경우 Task 대기 후 재평가
-                try { await cached.Task; } catch { /* 아래에서 상태 검사 */ }
+                // 진행 중/실패 상태를 한 번 더 관측한 뒤 상태를 재평가합니다.
+                try
+                {
+                    await cached.Task;
+                }
+                catch
+                {
+                    // 상태 판정은 아래 cached.Status로 처리합니다.
+                }
 
                 if (cached.IsValid() && cached.Status == AsyncOperationStatus.Succeeded)
                     return cached.Result;
 
-                // 실패 상태면 캐시 제거 후 재시도
+                // 실패한 캐시는 제거 후 재시도합니다.
                 HandleCache.Remove(key);
             }
 
@@ -84,7 +101,7 @@ namespace GGemCo2DAiBt
             }
             catch
             {
-                // handle.Status로 판정
+                // handle.Status로 최종 성공 여부를 판단합니다.
             }
 
             if (!handle.IsValid())
@@ -100,19 +117,26 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
-        /// 캐시된 Addressables 핸들을 모두 해제한다.
+        /// 캐시된 Addressables 핸들을 모두 해제합니다.
         /// </summary>
         public static void ReleaseAll()
         {
-            foreach (var kv in HandleCache)
+            foreach (KeyValuePair<string, AsyncOperationHandle<MonsterBehaviorTreeAsset>> kv in HandleCache)
             {
-                var handle = kv.Value;
-                if (handle.IsValid())
+                AsyncOperationHandle<MonsterBehaviorTreeAsset> handle = kv.Value;
+                if (!handle.IsValid())
+                    continue;
+
+                try
                 {
-                    try { Addressables.Release(handle); }
-                    catch (Exception e) { Debug.LogException(e); }
+                    Addressables.Release(handle);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e);
                 }
             }
+
             HandleCache.Clear();
         }
     }
