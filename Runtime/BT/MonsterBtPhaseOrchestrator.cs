@@ -65,10 +65,16 @@ namespace GGemCo2DAiBt
                 return phaseCompare != 0 ? phaseCompare : a.Uid.CompareTo(b.Uid);
             });
 
+            if (_phases[0].PhaseIndex != 1)
+            {
+                GcLogger.LogWarning($"[BT][Phase] 1페이즈(PhaseIndex=1)가 없습니다. monsterUid={_owner.uid}");
+                return false;
+            }
+
             _cachedBaseHp = Math.Max(1L, _owner.BaseHp);
             _currentPhaseListIndex = 0;
 
-            bool applied = await ApplyPhaseTreeAsync(_currentPhaseListIndex);
+            bool applied = await ApplyPhaseTreeAndStartHpAsync(_currentPhaseListIndex);
             if (!applied)
             {
                 ResetPhaseRuntimeState(clearConfiguration: true);
@@ -99,20 +105,19 @@ namespace GGemCo2DAiBt
                 return Math.Max(proposedHp, _owner.CurrentHp.Value);
 
             int nextPhaseIndex = _currentPhaseListIndex + 1;
-            if (!TryGetPhaseRow(_currentPhaseListIndex, out StruckTableMonsterPhase currentPhase))
+            if (!TryGetPhaseRow(_currentPhaseListIndex, out _))
                 return proposedHp;
             if (!TryGetPhaseRow(nextPhaseIndex, out _))
                 return proposedHp;
 
-            long phaseEndHp = ComputePhaseEndHp(currentPhase);
-            if (phaseEndHp < 0)
-                return proposedHp;
-            if (proposedHp > phaseEndHp)
+            // 현재 페이즈 HP가 모두 소진되면 다음 페이즈로 전환합니다.
+            if (proposedHp > 0)
                 return proposedHp;
 
-            long clampedHp = Math.Max(proposedHp, phaseEndHp);
-            BeginPhaseTransition(_currentPhaseListIndex, nextPhaseIndex, clampedHp);
-            return clampedHp;
+            // 사망을 막고 전환 코루틴에서 다음 페이즈 시작 HP를 적용합니다.
+            long holdHp = Math.Max(1L, _owner.CurrentHp.Value);
+            BeginPhaseTransition(_currentPhaseListIndex, nextPhaseIndex, holdHp);
+            return holdHp;
         }
 
         /// <summary>
@@ -159,25 +164,28 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
-        /// 페이즈 종료 HP 임계값을 계산합니다.
+        /// 페이즈 시작 HP를 계산합니다.
         /// </summary>
-        /// <param name="phase">현재 페이즈 행입니다.</param>
-        /// <returns>유효 임계값이면 0 이상, 정책 미사용이면 -1을 반환합니다.</returns>
-        private long ComputePhaseEndHp(StruckTableMonsterPhase phase)
+        /// <param name="phase">대상 페이즈 행입니다.</param>
+        /// <returns>계산된 시작 HP(최소 1)입니다.</returns>
+        private long ComputePhaseStartHp(StruckTableMonsterPhase phase)
         {
             if (phase == null)
-                return -1;
+                return Math.Max(1L, _cachedBaseHp);
 
             if (phase.EndHpFixed > 0)
-                return Math.Max(0, phase.EndHpFixed);
+                return Math.Max(1, phase.EndHpFixed);
 
             float percent = Mathf.Clamp01(phase.EndHpPercent);
-            if (percent <= 0f)
-                return -1;
-
             long baseHp = _cachedBaseHp > 0 ? _cachedBaseHp : (_owner != null ? Math.Max(1L, _owner.BaseHp) : 1L);
-            long hpByPercent = (long)Math.Round(baseHp * percent, MidpointRounding.AwayFromZero);
-            return Math.Max(0, hpByPercent);
+            if (percent > 0f)
+            {
+                long hpByPercent = (long)Math.Round(baseHp * percent, MidpointRounding.AwayFromZero);
+                return Math.Max(1L, hpByPercent);
+            }
+
+            GcLogger.LogWarning($"[BT][Phase] 페이즈 시작 HP 정책이 비어 있어 몬스터 기본 HP를 사용합니다. phaseUid={phase.Uid}");
+            return baseHp;
         }
 
         /// <summary>
@@ -208,7 +216,7 @@ namespace GGemCo2DAiBt
 
             try
             {
-                // 전환 트리거 프레임에서 HP를 임계값으로 즉시 고정합니다.
+                // 전환 트리거 프레임에서 HP를 유지값으로 즉시 고정합니다.
                 if (_owner != null && _owner.CurrentHp.Value < holdHp)
                 {
                     _owner.CurrentHp.OnNext(holdHp);
@@ -219,19 +227,19 @@ namespace GGemCo2DAiBt
                     _owner.Stop(isForce: true);
                 }
 
-                if (TryGetPhaseRow(currentPhaseIndex, out StruckTableMonsterPhase currentPhase))
+                if (TryGetPhaseRow(nextPhaseIndex, out StruckTableMonsterPhase nextPhaseForCutscene))
                 {
-                    yield return CoPlayTransitionCutscene(currentPhase.TransitionCutsceneUid);
+                    yield return CoPlayTransitionCutscene(nextPhaseForCutscene.TransitionCutsceneUid);
                 }
 
-                Task<bool> applyTask = ApplyPhaseTreeAsync(nextPhaseIndex);
+                Task<bool> applyTask = ApplyPhaseTreeAndStartHpAsync(nextPhaseIndex);
                 while (!applyTask.IsCompleted)
                     yield return null;
 
                 bool applied = !applyTask.IsFaulted && !applyTask.IsCanceled && applyTask.Result;
                 if (!applied)
                 {
-                    GcLogger.LogWarning($"[BT][Phase] 다음 페이즈 BT 적용에 실패했습니다. monsterUid={_owner?.uid}, nextIndex={nextPhaseIndex}");
+                    GcLogger.LogWarning($"[BT][Phase] 다음 페이즈 BT 적용에 실패했습니다. monsterUid={_owner?.uid}, currentIndex={currentPhaseIndex}, nextIndex={nextPhaseIndex}");
                     yield break;
                 }
 
@@ -306,6 +314,27 @@ namespace GGemCo2DAiBt
 
             MonsterBtRunner.BtTreeSwitchMode switchMode = ResolveTreeSwitchMode(phase.TreeSwitchMode);
             _runner.SetTree(asset, switchMode);
+            return true;
+        }
+
+        /// <summary>
+        /// 지정한 페이즈의 BT를 적용하고 시작 HP를 재설정합니다.
+        /// </summary>
+        /// <param name="phaseIndex">적용할 페이즈 인덱스입니다.</param>
+        /// <returns>적용 성공 시 true를 반환합니다.</returns>
+        private async Task<bool> ApplyPhaseTreeAndStartHpAsync(int phaseIndex)
+        {
+            bool applied = await ApplyPhaseTreeAsync(phaseIndex);
+            if (!applied)
+                return false;
+
+            if (_owner == null)
+                return false;
+            if (!TryGetPhaseRow(phaseIndex, out StruckTableMonsterPhase phase))
+                return false;
+
+            long startHp = ComputePhaseStartHp(phase);
+            _owner.CurrentHp.OnNext(startHp);
             return true;
         }
 
