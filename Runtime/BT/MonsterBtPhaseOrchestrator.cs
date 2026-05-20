@@ -27,6 +27,31 @@ namespace GGemCo2DAiBt
         private object _controlLockToken;
 
         /// <summary>
+        /// 페이즈 전환이 시작되어 몬스터 제어가 잠기기 직전에 발생합니다.
+        /// </summary>
+        public event Action<MonsterPhaseTransitionContext> PhaseTransitionStarted;
+
+        /// <summary>
+        /// 전환 컷신 재생이 끝난 직후 발생합니다.
+        /// </summary>
+        public event Action<MonsterPhaseTransitionContext> PhaseTransitionCutsceneCompleted;
+
+        /// <summary>
+        /// 다음 페이즈 BT와 시작 HP가 적용된 직후 발생합니다.
+        /// </summary>
+        public event Action<MonsterPhaseTransitionContext> PhaseApplied;
+
+        /// <summary>
+        /// 페이즈 전환 잠금이 해제되고 전환 상태가 종료된 직후 발생합니다.
+        /// </summary>
+        public event Action<MonsterPhaseTransitionContext> PhaseTransitionCompleted;
+
+        /// <summary>
+        /// 현재 적용된 페이즈 번호입니다. 초기화 전에는 0입니다.
+        /// </summary>
+        public int CurrentPhaseIndex => TryGetPhaseRow(_currentPhaseListIndex, out StruckTableMonsterPhase phase) ? phase.PhaseIndex : 0;
+
+        /// <summary>
         /// 페이즈 정의를 주입하고 첫 페이즈 BT를 적용합니다.
         /// </summary>
         /// <param name="owner">대상 몬스터입니다.</param>
@@ -164,6 +189,16 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
+        /// 내부 리스트 인덱스를 외부에 노출할 페이즈 번호로 변환합니다.
+        /// </summary>
+        /// <param name="listIndex">페이즈 목록 인덱스입니다.</param>
+        /// <returns>테이블의 PhaseIndex 값입니다. 찾지 못하면 0을 반환합니다.</returns>
+        private int ResolvePhaseIndexForContext(int listIndex)
+        {
+            return TryGetPhaseRow(listIndex, out StruckTableMonsterPhase row) ? row.PhaseIndex : 0;
+        }
+
+        /// <summary>
         /// 페이즈 시작 HP를 계산합니다.
         /// </summary>
         /// <param name="phase">대상 페이즈 행입니다.</param>
@@ -212,8 +247,23 @@ namespace GGemCo2DAiBt
         /// <returns>코루틴 이터레이터입니다.</returns>
         private IEnumerator CoTransitionPhase(int currentPhaseIndex, int nextPhaseIndex, long holdHp)
         {
+            int transitionCutsceneUid = 0;
+            if (TryGetPhaseRow(nextPhaseIndex, out StruckTableMonsterPhase nextPhaseForContext))
+            {
+                transitionCutsceneUid = nextPhaseForContext.TransitionCutsceneUid;
+            }
+
+            MonsterPhaseTransitionContext context = new MonsterPhaseTransitionContext(
+                _owner,
+                ResolvePhaseIndexForContext(currentPhaseIndex),
+                ResolvePhaseIndexForContext(nextPhaseIndex),
+                transitionCutsceneUid,
+                holdHp);
+
+            PhaseTransitionStarted?.Invoke(context);
             AcquireTransitionLocks();
 
+            bool applied = false;
             try
             {
                 // 전환 트리거 프레임에서 HP를 유지값으로 즉시 고정합니다.
@@ -227,16 +277,18 @@ namespace GGemCo2DAiBt
                     _owner.Stop(isForce: true);
                 }
 
-                if (TryGetPhaseRow(nextPhaseIndex, out StruckTableMonsterPhase nextPhaseForCutscene))
+                if (transitionCutsceneUid > 0)
                 {
-                    yield return CoPlayTransitionCutscene(nextPhaseForCutscene.TransitionCutsceneUid);
+                    yield return CoPlayTransitionCutscene(transitionCutsceneUid);
                 }
+
+                PhaseTransitionCutsceneCompleted?.Invoke(context);
 
                 Task<bool> applyTask = ApplyPhaseTreeAndStartHpAsync(nextPhaseIndex);
                 while (!applyTask.IsCompleted)
                     yield return null;
 
-                bool applied = !applyTask.IsFaulted && !applyTask.IsCanceled && applyTask.Result;
+                applied = !applyTask.IsFaulted && !applyTask.IsCanceled && applyTask.Result;
                 if (!applied)
                 {
                     GcLogger.LogWarning($"[BT][Phase] 다음 페이즈 BT 적용에 실패했습니다. monsterUid={_owner?.uid}, currentIndex={currentPhaseIndex}, nextIndex={nextPhaseIndex}");
@@ -244,11 +296,17 @@ namespace GGemCo2DAiBt
                 }
 
                 _currentPhaseListIndex = nextPhaseIndex;
+                PhaseApplied?.Invoke(context);
             }
             finally
             {
                 ReleaseTransitionLocks();
                 _isTransitionRunning = false;
+
+                if (applied)
+                {
+                    PhaseTransitionCompleted?.Invoke(context);
+                }
             }
         }
 
