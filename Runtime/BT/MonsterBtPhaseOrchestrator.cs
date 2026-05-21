@@ -116,6 +116,11 @@ namespace GGemCo2DAiBt
         /// <param name="proposedHp">Core 계산 기준 최종 HP입니다.</param>
         /// <param name="metadataDamage">현재 피격 메타데이터입니다.</param>
         /// <returns>페이즈 정책이 반영된 최종 HP입니다.</returns>
+        /// <remarks>
+        /// 다음 페이즈가 존재하면 기존과 동일하게 페이즈 전환을 우선 수행하고,
+        /// 다음 페이즈가 없는 마지막 페이즈에서는 현재 페이즈의
+        /// <c>TransitionCutsceneUid</c>가 설정된 경우 전환 컷신을 우선 재생한 뒤 사망을 확정합니다.
+        /// </remarks>
         public long ResolveFinalHpOnIncomingHit(long proposedHp, MetadataDamage metadataDamage)
         {
             if (!_isInitialized || !enabled || !isActiveAndEnabled)
@@ -129,20 +134,34 @@ namespace GGemCo2DAiBt
             if (_isTransitionRunning)
                 return Math.Max(proposedHp, _owner.CurrentHp.Value);
 
-            int nextPhaseIndex = _currentPhaseListIndex + 1;
             if (!TryGetPhaseRow(_currentPhaseListIndex, out _))
-                return proposedHp;
-            if (!TryGetPhaseRow(nextPhaseIndex, out _))
                 return proposedHp;
 
             // 현재 페이즈 HP가 모두 소진되면 다음 페이즈로 전환합니다.
             if (proposedHp > 0)
                 return proposedHp;
 
-            // 사망을 막고 전환 코루틴에서 다음 페이즈 시작 HP를 적용합니다.
-            long holdHp = Math.Max(1L, _owner.CurrentHp.Value);
-            BeginPhaseTransition(_currentPhaseListIndex, nextPhaseIndex, holdHp);
-            return holdHp;
+            int nextPhaseIndex = _currentPhaseListIndex + 1;
+            if (TryGetPhaseRow(nextPhaseIndex, out _))
+            {
+                // 사망을 막고 전환 코루틴에서 다음 페이즈 시작 HP를 적용합니다.
+                long holdHp = Math.Max(1L, _owner.CurrentHp.Value);
+                BeginPhaseTransition(_currentPhaseListIndex, nextPhaseIndex, holdHp);
+                return holdHp;
+            }
+
+            // 마지막 페이즈 종료 시점의 전환 컷신이 있으면 공용 사망 컷신보다 우선 재생합니다.
+            int phaseEndCutsceneUid = ResolvePhaseEndTransitionCutsceneUid(_currentPhaseListIndex);
+            if (phaseEndCutsceneUid <= 0)
+                return proposedHp;
+
+            long finalHoldHp = Math.Max(1L, _owner.CurrentHp.Value);
+            GameObject attacker = metadataDamage != null ? metadataDamage.attacker : null;
+            DeathPresentationRequest deathPresentation = metadataDamage != null && metadataDamage.DeathPresentation != null
+                ? metadataDamage.DeathPresentation.Clone()
+                : null;
+            BeginFinalPhaseDeathTransition(phaseEndCutsceneUid, finalHoldHp, attacker, deathPresentation);
+            return finalHoldHp;
         }
 
         /// <summary>
@@ -199,6 +218,18 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
+        /// 특정 페이즈가 종료될 때 재생할 전환 컷신 UID를 조회합니다.
+        /// </summary>
+        /// <param name="phaseListIndex">페이즈 목록 인덱스입니다.</param>
+        /// <returns>조회된 전환 컷신 UID입니다. 미설정/미조회 시 0을 반환합니다.</returns>
+        private int ResolvePhaseEndTransitionCutsceneUid(int phaseListIndex)
+        {
+            return TryGetPhaseRow(phaseListIndex, out StruckTableMonsterPhase phase)
+                ? phase.TransitionCutsceneUid
+                : 0;
+        }
+
+        /// <summary>
         /// 페이즈 시작 HP를 계산합니다.
         /// </summary>
         /// <param name="phase">대상 페이즈 행입니다.</param>
@@ -241,17 +272,16 @@ namespace GGemCo2DAiBt
         /// <summary>
         /// 페이즈 전환(잠금 → 컷신 → BT 교체 → 잠금 해제)을 수행합니다.
         /// </summary>
+        /// <remarks>
+        /// 전환 컷신 UID는 "다음 페이즈 행"이 아니라 "현재(종료되는) 페이즈 행"에서 조회합니다.
+        /// </remarks>
         /// <param name="currentPhaseIndex">현재 페이즈 인덱스입니다.</param>
         /// <param name="nextPhaseIndex">다음 페이즈 인덱스입니다.</param>
         /// <param name="holdHp">전환 중 유지할 HP입니다.</param>
         /// <returns>코루틴 이터레이터입니다.</returns>
         private IEnumerator CoTransitionPhase(int currentPhaseIndex, int nextPhaseIndex, long holdHp)
         {
-            int transitionCutsceneUid = 0;
-            if (TryGetPhaseRow(nextPhaseIndex, out StruckTableMonsterPhase nextPhaseForContext))
-            {
-                transitionCutsceneUid = nextPhaseForContext.TransitionCutsceneUid;
-            }
+            int transitionCutsceneUid = ResolvePhaseEndTransitionCutsceneUid(currentPhaseIndex);
 
             MonsterPhaseTransitionContext context = new MonsterPhaseTransitionContext(
                 _owner,
@@ -307,6 +337,81 @@ namespace GGemCo2DAiBt
                 {
                     PhaseTransitionCompleted?.Invoke(context);
                 }
+            }
+        }
+
+        /// <summary>
+        /// 마지막 페이즈 사망 전환(잠금 → 전환 컷신 → 사망 확정)을 시작합니다.
+        /// </summary>
+        /// <param name="cutsceneUid">마지막 페이즈 종료 시점 전환 컷신 UID입니다.</param>
+        /// <param name="holdHp">컷신 재생 중 유지할 HP입니다.</param>
+        /// <param name="attacker">사망 유발 공격자입니다.</param>
+        /// <param name="deathPresentation">사망 연출 요청입니다.</param>
+        private void BeginFinalPhaseDeathTransition(
+            int cutsceneUid,
+            long holdHp,
+            GameObject attacker,
+            DeathPresentationRequest deathPresentation)
+        {
+            if (_isTransitionRunning)
+                return;
+            if (cutsceneUid <= 0)
+                return;
+
+            _isTransitionRunning = true;
+            StartCoroutine(CoFinalizeLastPhaseDeath(cutsceneUid, holdHp, attacker, deathPresentation));
+        }
+
+        /// <summary>
+        /// 마지막 페이즈 종료 컷신을 재생한 뒤 실제 사망을 확정합니다.
+        /// </summary>
+        /// <param name="cutsceneUid">마지막 페이즈 종료 시점 전환 컷신 UID입니다.</param>
+        /// <param name="holdHp">컷신 재생 중 유지할 HP입니다.</param>
+        /// <param name="attacker">사망 유발 공격자입니다.</param>
+        /// <param name="deathPresentation">사망 연출 요청입니다.</param>
+        /// <returns>코루틴 이터레이터입니다.</returns>
+        private IEnumerator CoFinalizeLastPhaseDeath(
+            int cutsceneUid,
+            long holdHp,
+            GameObject attacker,
+            DeathPresentationRequest deathPresentation)
+        {
+            try
+            {
+                AcquireTransitionLocks();
+
+                if (_owner != null && _owner.CurrentHp.Value < holdHp)
+                {
+                    _owner.CurrentHp.OnNext(holdHp);
+                }
+
+                if (_owner != null)
+                {
+                    _owner.Stop(isForce: true);
+                }
+
+                yield return CoPlayTransitionCutscene(cutsceneUid);
+
+                if (_owner == null || _owner.IsStatusDead())
+                    yield break;
+
+                if (_owner is Monster monster)
+                {
+                    monster.SuppressNextDeadCutsceneOnce();
+                }
+
+                _owner.CurrentHp.OnNext(0);
+                _owner.CurrentMp.OnNext(0);
+                _owner.Dead(
+                    CharacterConstants.DieReasonType.Battle,
+                    attacker,
+                    playDeadAnimation: true,
+                    deathPresentation: deathPresentation);
+            }
+            finally
+            {
+                ReleaseTransitionLocks();
+                _isTransitionRunning = false;
             }
         }
 

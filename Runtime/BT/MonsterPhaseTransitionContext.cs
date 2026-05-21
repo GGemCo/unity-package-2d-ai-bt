@@ -21,7 +21,7 @@ namespace GGemCo2DAiBt
         /// <param name="monster">전환 대상 몬스터입니다.</param>
         /// <param name="currentPhaseIndex">현재 페이즈 번호입니다.</param>
         /// <param name="nextPhaseIndex">다음 페이즈 번호입니다.</param>
-        /// <param name="transitionCutsceneUid">전환 컷신 UID입니다.</param>
+        /// <param name="transitionCutsceneUid">현재 페이즈 종료 시점에 시작할 전환 컷신 UID입니다.</param>
         /// <param name="holdHp">전환 중 유지할 HP입니다.</param>
         public MonsterPhaseTransitionContext(
             Monster monster,
