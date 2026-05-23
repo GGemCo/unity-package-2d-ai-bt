@@ -114,10 +114,60 @@ namespace GGemCo2DAiBtEditor
                 return;
 
             Vector2 delta = evt.mousePosition - prevMousePos;
-            viewTransform.position += (Vector3)delta;
+            PanGraphViewBy(delta);
             _lastMousePos = evt.mousePosition;
 
             evt.StopImmediatePropagation();
+        }
+
+        /// <summary>
+        /// 우클릭 패닝 입력 델타를 현재 GraphView 변환에 반영합니다.
+        /// </summary>
+        /// <param name="delta">이번 프레임의 마우스 이동량입니다.</param>
+        private void PanGraphViewBy(Vector2 delta)
+        {
+            Vector3 currentPosition = GetCurrentGraphViewPosition();
+            Vector3 nextPosition = currentPosition + new Vector3(delta.x, delta.y, 0f);
+            float zoomScale = scale;
+            UpdateViewTransform(nextPosition, new Vector3(zoomScale, zoomScale, 1f));
+        }
+
+        /// <summary>
+        /// GraphView의 현재 이동 위치를 픽셀 단위로 반환합니다.
+        /// </summary>
+        /// <remarks>
+        /// <c>ITransform.position</c>이 obsolete 되었기 때문에
+        /// 읽기 시 <c>resolvedStyle.translate</c>를 사용합니다.
+        /// </remarks>
+        /// <returns>현재 그래프 뷰의 팬(translate) 위치입니다.</returns>
+        private Vector3 GetCurrentGraphViewPosition()
+        {
+            Translate translate = contentViewContainer.resolvedStyle.translate;
+            float width = contentViewContainer.resolvedStyle.width;
+            float height = contentViewContainer.resolvedStyle.height;
+
+            float x = ResolveTranslateLengthToPixels(translate.x, width);
+            float y = ResolveTranslateLengthToPixels(translate.y, height);
+            return new Vector3(x, y, 0f);
+        }
+
+        /// <summary>
+        /// UI Toolkit Length 값을 실제 픽셀 값으로 환산합니다.
+        /// </summary>
+        /// <param name="length">환산할 길이 값입니다.</param>
+        /// <param name="referenceSizePx">퍼센트 단위 환산 시 사용할 기준 크기(px)입니다.</param>
+        /// <returns>픽셀 단위 환산 값입니다.</returns>
+        private static float ResolveTranslateLengthToPixels(Length length, float referenceSizePx)
+        {
+            float safeReferenceSize = float.IsNaN(referenceSizePx) || float.IsInfinity(referenceSizePx)
+                ? 0f
+                : referenceSizePx;
+
+            return length.unit switch
+            {
+                LengthUnit.Percent => safeReferenceSize * (length.value * 0.01f),
+                _ => length.value,
+            };
         }
 
         private void OnMouseUp(MouseUpEvent evt)
