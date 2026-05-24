@@ -485,6 +485,11 @@ namespace GGemCo2DAiBt
         /// </summary>
         /// <param name="phaseIndex">적용할 페이즈 인덱스입니다.</param>
         /// <returns>적용 성공 시 true를 반환합니다.</returns>
+        /// <remarks>
+        /// monster_phase를 사용하는 몬스터는 페이즈 전환 시점마다
+        /// 시작 HP를 현재 HP뿐 아니라 최대 HP(TotalHp)에도 반영해야
+        /// HUD/월드 HP 바의 분모가 현재 페이즈 기준으로 일치합니다.
+        /// </remarks>
         private async Task<bool> ApplyPhaseTreeAndStartHpAsync(int phaseIndex)
         {
             bool applied = await ApplyPhaseTreeAsync(phaseIndex);
@@ -497,8 +502,33 @@ namespace GGemCo2DAiBt
                 return false;
 
             long startHp = ComputePhaseStartHp(phase);
-            _owner.CurrentHp.OnNext(startHp);
+            ApplyPhaseHpSnapshot(startHp);
             return true;
+        }
+
+        /// <summary>
+        /// 현재 페이즈 시작 HP를 최대 HP/현재 HP에 함께 반영합니다.
+        /// </summary>
+        /// <param name="phaseStartHp">페이즈 테이블 정책으로 계산된 시작 HP입니다.</param>
+        /// <remarks>
+        /// TotalHp는 CharacterStat 재계산 결과이므로 BaseHp를 먼저 갱신한 뒤
+        /// RecalculateStats를 호출해 TotalHp를 갱신합니다.
+        /// 그 후 CurrentHp를 최종 TotalHp 범위로 보정하여 반영합니다.
+        /// </remarks>
+        private void ApplyPhaseHpSnapshot(long phaseStartHp)
+        {
+            if (_owner == null)
+                return;
+
+            long normalizedStartHp = Math.Max(1L, phaseStartHp);
+            int normalizedBaseHp = normalizedStartHp > int.MaxValue ? int.MaxValue : (int)normalizedStartHp;
+
+            _owner.BaseHp = normalizedBaseHp;
+            _owner.RecalculateStats();
+
+            long resolvedTotalHp = _owner.TotalHp.Value > 0 ? _owner.TotalHp.Value : normalizedStartHp;
+            long clampedCurrentHp = Math.Clamp(normalizedStartHp, 0L, resolvedTotalHp);
+            _owner.CurrentHp.OnNext(clampedCurrentHp);
         }
 
         /// <summary>
