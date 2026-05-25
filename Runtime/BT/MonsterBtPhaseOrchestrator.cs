@@ -56,6 +56,11 @@ namespace GGemCo2DAiBt
         /// <param name="runner">BT 러너입니다.</param>
         /// <param name="phaseRows">해당 몬스터의 페이즈 행 목록입니다.</param>
         /// <returns>초기화/적용 성공 시 true를 반환합니다.</returns>
+        /// <remarks>
+        /// 첫 페이즈 적용이 완료되면 해당 페이즈의 <c>PhaseStartCutsceneUid</c>를 확인해
+        /// 전투 시작 전에 시작 컷신을 먼저 재생합니다.
+        /// 시작 컷신 재생 동안에는 Brain/Control 잠금을 유지해 전투가 시작되지 않도록 보장합니다.
+        /// </remarks>
         public async Task<bool> InitializeAndApplyAsync(Monster owner, MonsterBtRunner runner, IReadOnlyList<StruckTableMonsterPhase> phaseRows)
         {
             ResetPhaseRuntimeState(clearConfiguration: true);
@@ -105,6 +110,7 @@ namespace GGemCo2DAiBt
             }
 
             _isInitialized = true;
+            BeginInitialPhaseStartCutsceneIfNeeded(_currentPhaseListIndex);
             return true;
         }
 
@@ -118,6 +124,7 @@ namespace GGemCo2DAiBt
         /// 다음 페이즈가 존재하면 기존과 동일하게 페이즈 전환을 우선 수행하고,
         /// 다음 페이즈가 없는 마지막 페이즈에서는 현재 페이즈의
         /// <c>TransitionCutsceneUid</c>가 설정된 경우 전환 컷신을 우선 재생한 뒤 사망을 확정합니다.
+        /// 다음 페이즈 전환 성공 시에는 적용된 페이즈의 <c>PhaseStartCutsceneUid</c>를 이어서 재생합니다.
         /// </remarks>
         public long ResolveFinalHpOnIncomingHit(long proposedHp, MetadataDamage metadataDamage)
         {
@@ -228,6 +235,18 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
+        /// 특정 페이즈가 시작될 때 재생할 컷신 UID를 조회합니다.
+        /// </summary>
+        /// <param name="phaseListIndex">페이즈 목록 인덱스입니다.</param>
+        /// <returns>조회된 시작 컷신 UID입니다. 미설정/미조회 시 0을 반환합니다.</returns>
+        private int ResolvePhaseStartCutsceneUid(int phaseListIndex)
+        {
+            return TryGetPhaseRow(phaseListIndex, out StruckTableMonsterPhase phase)
+                ? phase.PhaseStartCutsceneUid
+                : 0;
+        }
+
+        /// <summary>
         /// 페이즈 시작 HP를 계산합니다.
         /// </summary>
         /// <param name="phase">대상 페이즈 행입니다.</param>
@@ -268,7 +287,7 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
-        /// 페이즈 전환(잠금 → 컷신 → BT 교체 → 잠금 해제)을 수행합니다.
+        /// 페이즈 전환(잠금 → 종료 컷신 → BT 교체 → 시작 컷신 → 잠금 해제)을 수행합니다.
         /// </summary>
         /// <remarks>
         /// 전환 컷신 UID는 "다음 페이즈 행"이 아니라 "현재(종료되는) 페이즈 행"에서 조회합니다.
@@ -325,6 +344,7 @@ namespace GGemCo2DAiBt
 
                 _currentPhaseListIndex = nextPhaseIndex;
                 PhaseApplied?.Invoke(context);
+                yield return CoPlayPhaseStartCutsceneIfNeeded(_currentPhaseListIndex);
             }
             finally
             {
@@ -439,6 +459,66 @@ namespace GGemCo2DAiBt
             while (manager.IsSessionActive())
             {
                 yield return null;
+            }
+        }
+
+        /// <summary>
+        /// 지정한 페이즈의 시작 컷신을 재생하고 종료까지 대기합니다.
+        /// </summary>
+        /// <param name="phaseListIndex">시작 컷신을 조회할 페이즈 목록 인덱스입니다.</param>
+        /// <returns>코루틴 이터레이터입니다.</returns>
+        private IEnumerator CoPlayPhaseStartCutsceneIfNeeded(int phaseListIndex)
+        {
+            int phaseStartCutsceneUid = ResolvePhaseStartCutsceneUid(phaseListIndex);
+            if (phaseStartCutsceneUid <= 0)
+                yield break;
+
+            yield return CoPlayTransitionCutscene(phaseStartCutsceneUid);
+        }
+
+        /// <summary>
+        /// 초기 페이즈 적용 직후 시작 컷신 재생 시퀀스를 시작합니다.
+        /// </summary>
+        /// <param name="phaseListIndex">시작 컷신을 조회할 페이즈 목록 인덱스입니다.</param>
+        /// <remarks>
+        /// 시작 컷신이 설정되어 있으면 전투 시작 전에 컷신을 우선 재생합니다.
+        /// 해당 구간은 전환 잠금(<see cref="AcquireTransitionLocks"/>)을 획득해
+        /// 몬스터 Brain/Control을 정지시켜 전투 진입을 지연합니다.
+        /// </remarks>
+        private void BeginInitialPhaseStartCutsceneIfNeeded(int phaseListIndex)
+        {
+            int phaseStartCutsceneUid = ResolvePhaseStartCutsceneUid(phaseListIndex);
+            if (phaseStartCutsceneUid <= 0)
+                return;
+            if (_isTransitionRunning)
+                return;
+
+            _isTransitionRunning = true;
+            StartCoroutine(CoPlayInitialPhaseStartCutscene(phaseStartCutsceneUid));
+        }
+
+        /// <summary>
+        /// 초기 전투 시작 전용 시작 컷신을 재생한 뒤 잠금을 해제합니다.
+        /// </summary>
+        /// <param name="cutsceneUid">초기 페이즈 시작 컷신 UID입니다.</param>
+        /// <returns>코루틴 이터레이터입니다.</returns>
+        private IEnumerator CoPlayInitialPhaseStartCutscene(int cutsceneUid)
+        {
+            try
+            {
+                AcquireTransitionLocks();
+
+                if (_owner != null)
+                {
+                    _owner.Stop(isForce: true);
+                }
+
+                yield return CoPlayTransitionCutscene(cutsceneUid);
+            }
+            finally
+            {
+                ReleaseTransitionLocks();
+                _isTransitionRunning = false;
             }
         }
 
