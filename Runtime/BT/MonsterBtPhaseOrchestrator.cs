@@ -13,8 +13,6 @@ namespace GGemCo2DAiBt
     [DisallowMultipleComponent]
     public sealed class MonsterBtPhaseOrchestrator : MonoBehaviour, IMonsterPoolLifecycle, IIncomingHitFinalHpResolver
     {
-        private const float MaxCutsceneWaitSeconds = 30f;
-
         private readonly List<StruckTableMonsterPhase> _phases = new List<StruckTableMonsterPhase>();
 
         private Monster _owner;
@@ -417,6 +415,7 @@ namespace GGemCo2DAiBt
 
         /// <summary>
         /// 전환 컷신을 재생하고 종료까지 대기합니다.
+        /// 컷신 세션 활성 상태(<see cref="CutsceneManager.IsSessionActive"/>)가 종료될 때까지 프레임 단위로 대기합니다.
         /// </summary>
         /// <param name="cutsceneUid">전환 컷신 UID입니다.</param>
         /// <returns>코루틴 이터레이터입니다.</returns>
@@ -437,15 +436,8 @@ namespace GGemCo2DAiBt
             if (!manager.IsSessionActive())
                 yield break;
 
-            float start = Time.realtimeSinceStartup;
             while (manager.IsSessionActive())
             {
-                if (Time.realtimeSinceStartup - start > MaxCutsceneWaitSeconds)
-                {
-                    GcLogger.LogWarning($"[BT][Phase] 컷신 대기 시간이 초과되었습니다. cutsceneUid={cutsceneUid}");
-                    yield break;
-                }
-
                 yield return null;
             }
         }
