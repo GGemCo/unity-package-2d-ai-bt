@@ -17,7 +17,12 @@ namespace GGemCo2DAiBtEditor
     public sealed class MonsterBehaviorTreeAssetEditor : Editor
     {
         private const float Space = 4f;
+        private const float ButtonHeight = 24f;
 
+        /// <summary>
+        /// MonsterBehaviorTreeAsset 인스펙터 UI를 렌더링하고
+        /// 편집/검증/예시 트리 생성 기능을 제공한다.
+        /// </summary>
         public override void OnInspectorGUI()
         {
             var asset = (MonsterBehaviorTreeAsset)target;
@@ -29,26 +34,96 @@ namespace GGemCo2DAiBtEditor
             DrawDefaultInspector();
 
             EditorGUILayout.Space(10f);
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("Validate", GUILayout.Height(24)))
-                {
-                    var issues = MonsterBtValidator.Validate(asset);
-                    MonsterBtValidator.LogIssues(asset, issues);
-                }
-
-                if (GUILayout.Button("Create Example BT", GUILayout.Height(24)))
-                {
-                    Undo.RecordObject(asset, "Create Example BT");
-                    MonsterBtPresetBuilder.BuildMeleeExample(asset);
-                    EditorUtility.SetDirty(asset);
-                }
-            }
+            DrawActionButtons(asset);
 
             EditorGUILayout.Space(6f);
             DrawSummary(asset);
         }
 
+        /// <summary>
+        /// 인스펙터 하단의 액션 버튼 영역을 렌더링한다.
+        /// </summary>
+        /// <param name="asset">현재 선택된 BT 에셋</param>
+        private static void DrawActionButtons(MonsterBehaviorTreeAsset asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("편집하기", GUILayout.Height(ButtonHeight)))
+                {
+                    OpenBtEditor(asset);
+                }
+
+                if (GUILayout.Button("Validate", GUILayout.Height(ButtonHeight)))
+                {
+                    ValidateTree(asset);
+                }
+
+                if (GUILayout.Button("Create Example BT", GUILayout.Height(ButtonHeight)))
+                {
+                    CreateExampleTree(asset);
+                }
+            }
+        }
+
+        /// <summary>
+        /// BT 생성/테스트 툴 창을 현재 에셋과 함께 연다.
+        /// </summary>
+        /// <param name="asset">편집 대상으로 전달할 BT 에셋</param>
+        private static void OpenBtEditor(MonsterBehaviorTreeAsset asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            Selection.activeObject = asset;
+            EditorGUIUtility.PingObject(asset);
+            CreateBtWindow.Open(asset);
+
+            // IMGUI 이벤트 중 창 전환이 발생하므로 레이아웃 예외를 방지하기 위해 즉시 종료한다.
+            GUIUtility.ExitGUI();
+        }
+
+        /// <summary>
+        /// 현재 BT 에셋의 구조 유효성을 검사하고 결과를 Console에 출력한다.
+        /// </summary>
+        /// <param name="asset">검증할 BT 에셋</param>
+        private static void ValidateTree(MonsterBehaviorTreeAsset asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            var issues = MonsterBtValidator.Validate(asset);
+            MonsterBtValidator.LogIssues(asset, issues);
+        }
+
+        /// <summary>
+        /// 현재 BT 에셋에 근접 전투 예시 트리를 생성한다.
+        /// </summary>
+        /// <param name="asset">예시 트리를 생성할 BT 에셋</param>
+        private static void CreateExampleTree(MonsterBehaviorTreeAsset asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            Undo.RecordObject(asset, "Create Example BT");
+            MonsterBtPresetBuilder.BuildMeleeExample(asset);
+            EditorUtility.SetDirty(asset);
+        }
+
+        /// <summary>
+        /// 현재 에셋의 핵심 요약 정보를 인스펙터에 출력한다.
+        /// </summary>
+        /// <param name="asset">요약 정보를 표시할 BT 에셋</param>
         private static void DrawSummary(MonsterBehaviorTreeAsset asset)
         {
             int nodeCount = asset.nodes?.Count ?? 0;
