@@ -1499,6 +1499,16 @@ namespace GGemCo2DAiBt
 
                 var nodeState = Runtime.GetOrCreateNodeState(executionKey, node.id);
 
+                // 스킬 실행 중에는 이동 의도를 끊고 대기 상태를 유지해 스킬 연출/판정 프레임을 보호한다.
+                if (SkillDriver != null && SkillDriver.IsSkillBusy)
+                {
+                    // if (DebugLog)
+                    //     LogBtTrace(Owner, $"RequestWait from MoveToTarget(skillBusy). frame={Time.frameCount}, tick={Runtime.TickIndex}, executionKey={executionKey}");
+                    failureReason = BtDebugReason.SkillBusy;
+                    detail = "skill busy. move request blocked";
+                    return BtStatus.Failure;
+                }
+
                 if (!Driver.TryGetTarget(out var target) || target == null)
                 {
                     nodeState.MoveInAttackRangeLastTick = false;
