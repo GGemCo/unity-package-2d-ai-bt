@@ -173,9 +173,12 @@ namespace GGemCo2DAiBtEditor
             for (int i = 0; i < rowsToValidate.Count; i++)
             {
                 StruckTableMonster row = rowsToValidate[i];
-                string normalizedBtFileName = NormalizeBtFileName(row?.BtFileName);
-                if (string.IsNullOrWhiteSpace(normalizedBtFileName))
+                if (!TryNormalizeBtFileNameForTableInput(row?.BtFileName, out string normalizedBtFileName, out string failReason))
+                {
+                    int invalidUid = row != null ? row.Uid : 0;
+                    missingEntries.Add($"- Uid={invalidUid}, BtFileName='{row?.BtFileName}', Reason='{failReason}'");
                     continue;
+                }
 
                 string assetPath = ResolveBtAssetPath(normalizedBtFileName);
                 MonsterBehaviorTreeAsset asset = AssetDatabase.LoadAssetAtPath<MonsterBehaviorTreeAsset>(assetPath);
@@ -366,8 +369,8 @@ namespace GGemCo2DAiBtEditor
         /// <returns>BtFileName이 변경되었으면 true를 반환합니다.</returns>
         private static bool IsBtFileNameChanged(StruckTableMonster before, StruckTableMonster after)
         {
-            string beforeValue = NormalizeBtFileName(before?.BtFileName);
-            string afterValue = NormalizeBtFileName(after?.BtFileName);
+            string beforeValue = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(before?.BtFileName);
+            string afterValue = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(after?.BtFileName);
             return !string.Equals(beforeValue, afterValue, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -388,24 +391,21 @@ namespace GGemCo2DAiBtEditor
         }
 
         /// <summary>
-        /// BT 파일명 문자열을 정규화합니다.
-        /// - 앞뒤 공백/따옴표 제거
-        /// - 경로 구분자 정규화
-        /// - .asset 확장자 제거
+        /// BtFileName 입력값이 테이블 정책(루트 하위 상대 경로)에 맞는지 검증하고 정규화합니다.
         /// </summary>
         /// <param name="rawFileName">원본 파일명 문자열입니다.</param>
-        /// <returns>정규화된 BT 파일명입니다.</returns>
-        private static string NormalizeBtFileName(string rawFileName)
+        /// <param name="normalizedRelativePath">정규화된 상대 경로입니다.</param>
+        /// <param name="failReason">검증 실패 사유입니다.</param>
+        /// <returns>검증/정규화 성공 시 true를 반환합니다.</returns>
+        private static bool TryNormalizeBtFileNameForTableInput(
+            string rawFileName,
+            out string normalizedRelativePath,
+            out string failReason)
         {
-            if (string.IsNullOrWhiteSpace(rawFileName))
-                return string.Empty;
-
-            string trimmed = rawFileName.Trim().Trim('"');
-            string normalized = ConfigAddressablePath.EnsureForwardSlashes(trimmed);
-            if (normalized.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
-                normalized = normalized.Substring(0, normalized.Length - ".asset".Length);
-
-            return normalized.Trim();
+            return ConfigAddressablePathAiBt.MonsterBt.TryNormalizeTableRelativePath(
+                rawFileName,
+                out normalizedRelativePath,
+                out failReason);
         }
 
         /// <summary>
@@ -415,11 +415,7 @@ namespace GGemCo2DAiBtEditor
         /// <returns>Assets 기준 .asset 경로입니다.</returns>
         private static string ResolveBtAssetPath(string btFileName)
         {
-            string normalizedBtFileName = NormalizeBtFileName(btFileName);
-            if (string.IsNullOrWhiteSpace(normalizedBtFileName))
-                return string.Empty;
-
-            return ConfigAddressablePath.Combine(ConfigAddressablePathAiBt.MonsterBt.Root, $"{normalizedBtFileName}.asset");
+            return ConfigAddressablePathAiBt.MonsterBt.BuildAssetPath(btFileName);
         }
     }
 }

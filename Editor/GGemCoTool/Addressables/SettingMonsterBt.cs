@@ -155,7 +155,7 @@ namespace GGemCo2DAiBtEditor
                 var uniqueRemoveCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < rowsToRemove.Count; i++)
                 {
-                    string btFileName = NormalizeBtFileName(rowsToRemove[i]?.BtFileName);
+                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(rowsToRemove[i]?.BtFileName);
                     if (string.IsNullOrWhiteSpace(btFileName))
                         continue;
                     if (!uniqueRemoveCandidates.Add(btFileName))
@@ -174,7 +174,7 @@ namespace GGemCo2DAiBtEditor
                 var uniqueUpsertCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 0; i < rowsToUpsert.Count; i++)
                 {
-                    string btFileName = NormalizeBtFileName(rowsToUpsert[i]?.BtFileName);
+                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(rowsToUpsert[i]?.BtFileName);
                     if (string.IsNullOrWhiteSpace(btFileName))
                         continue;
                     if (!uniqueUpsertCandidates.Add(btFileName))
@@ -255,11 +255,14 @@ namespace GGemCo2DAiBtEditor
             if (helper == null || settings == null || group == null)
                 return null;
 
-            string normalizedBtFileName = NormalizeBtFileName(btFileName);
+            string normalizedBtFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(btFileName);
             if (string.IsNullOrWhiteSpace(normalizedBtFileName))
                 return null;
 
             string key = BuildAddressKey(normalizedBtFileName);
+            if (string.IsNullOrWhiteSpace(key))
+                return null;
+
             string assetPath = ResolveBtAssetPath(normalizedBtFileName);
             return helper.Add(settings, group, key, assetPath, string.Empty);
         }
@@ -280,11 +283,14 @@ namespace GGemCo2DAiBtEditor
             if (settings == null || group == null)
                 return false;
 
-            string normalizedBtFileName = NormalizeBtFileName(btFileName);
+            string normalizedBtFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(btFileName);
             if (string.IsNullOrWhiteSpace(normalizedBtFileName))
                 return false;
 
             string key = BuildAddressKey(normalizedBtFileName);
+            if (string.IsNullOrWhiteSpace(key))
+                return false;
+
             if (TryRemoveBtEntryByAddress(settings, group, key))
                 return true;
 
@@ -346,7 +352,7 @@ namespace GGemCo2DAiBtEditor
                     if (row == null || row.Uid <= 0)
                         continue;
 
-                    string btFileName = NormalizeBtFileName(row.BtFileName);
+                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(row.BtFileName);
                     if (string.IsNullOrWhiteSpace(btFileName))
                         continue;
 
@@ -363,7 +369,7 @@ namespace GGemCo2DAiBtEditor
                     if (row == null || row.Uid <= 0)
                         continue;
 
-                    string btFileName = NormalizeBtFileName(row.BtFileName);
+                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(row.BtFileName);
                     if (string.IsNullOrWhiteSpace(btFileName))
                         continue;
 
@@ -391,32 +397,7 @@ namespace GGemCo2DAiBtEditor
         /// <returns>Assets 기준 .asset 경로입니다.</returns>
         private static string ResolveBtAssetPath(string btFileName)
         {
-            string normalizedBtFileName = NormalizeBtFileName(btFileName);
-            if (string.IsNullOrWhiteSpace(normalizedBtFileName))
-                return string.Empty;
-
-            return ConfigAddressablePath.Combine(ConfigAddressablePathAiBt.MonsterBt.Root, $"{normalizedBtFileName}.asset");
-        }
-
-        /// <summary>
-        /// BT 파일명 문자열을 정규화합니다.
-        /// - 앞뒤 공백/따옴표 제거
-        /// - 경로 구분자 정규화
-        /// - .asset 확장자 제거
-        /// </summary>
-        /// <param name="rawFileName">원본 파일명 문자열입니다.</param>
-        /// <returns>정규화된 BT 파일명입니다.</returns>
-        private static string NormalizeBtFileName(string rawFileName)
-        {
-            if (string.IsNullOrWhiteSpace(rawFileName))
-                return string.Empty;
-
-            string trimmed = rawFileName.Trim().Trim('"');
-            string normalized = ConfigAddressablePath.EnsureForwardSlashes(trimmed);
-            if (normalized.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
-                normalized = normalized.Substring(0, normalized.Length - ".asset".Length);
-
-            return normalized.Trim();
+            return ConfigAddressablePathAiBt.MonsterBt.BuildAssetPath(btFileName);
         }
     }
 }

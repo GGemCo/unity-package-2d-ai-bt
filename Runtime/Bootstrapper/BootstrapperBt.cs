@@ -145,9 +145,13 @@ namespace GGemCo2DAiBt
         private async Task SetupSingleBtOrLegacyAsync(GameObject owner, StruckTableMonster info)
         {
             var runner = owner.GetComponent<MonsterBtRunner>();
+            // BtFileName은 MonsterBt 루트 하위 상대 경로 규칙으로 정규화해 키를 생성합니다.
+            // (예: Common/AirGolem)
+            string btRelativePath = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(info?.BtFileName);
+            string btKey = ConfigAddressableKeyAiBt.GetMonsterBt(btRelativePath);
 
             // BT가 없으면 Runner를 비활성하고 레거시 Brain을 사용합니다.
-            if (string.IsNullOrWhiteSpace(info.BtFileName))
+            if (string.IsNullOrWhiteSpace(btRelativePath) || string.IsNullOrWhiteSpace(btKey))
             {
                 if (runner != null)
                     runner.enabled = false;
@@ -170,7 +174,7 @@ namespace GGemCo2DAiBt
             runner.enabled = true;
 
             await AddressableLoaderMonsterBt.LoadAndApplyAsync(
-                ConfigAddressableKeyAiBt.GetMonsterBt(info.BtFileName),
+                btKey,
                 runner);
         }
 

@@ -533,13 +533,22 @@ namespace GGemCo2DAiBt
                 return false;
             if (!TryGetPhaseRow(phaseIndex, out StruckTableMonsterPhase phase))
                 return false;
-            if (string.IsNullOrWhiteSpace(phase.BtFileName))
+
+            // BtFileName은 MonsterBt 루트 하위 상대 경로 규칙으로 정규화해 키를 생성합니다.
+            string btRelativePath = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(phase.BtFileName);
+            if (string.IsNullOrWhiteSpace(btRelativePath))
             {
                 GcLogger.LogWarning($"[BT][Phase] BtFileName이 비어 있습니다. phaseUid={phase.Uid}");
                 return false;
             }
 
-            string key = ConfigAddressableKeyAiBt.GetMonsterBt(phase.BtFileName);
+            string key = ConfigAddressableKeyAiBt.GetMonsterBt(btRelativePath);
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                GcLogger.LogWarning($"[BT][Phase] BT key 생성에 실패했습니다. phaseUid={phase.Uid}, BtFileName={phase.BtFileName}");
+                return false;
+            }
+
             MonsterBehaviorTreeAsset asset = await AddressableLoaderMonsterBt.LoadTreeAssetAsync(key);
             if (asset == null)
             {
