@@ -125,10 +125,27 @@ namespace GGemCo2DAiBtEditor
             IReadOnlyList<StruckTableMonster> rowsToRemove,
             SettingMonsterBtOptions options = null)
         {
+            IReadOnlyList<string> btFileNamesToUpsert = ExtractNormalizedBtFileNamesFromMonsterRows(rowsToUpsert);
+            IReadOnlyList<string> btFileNamesToRemove = ExtractNormalizedBtFileNamesFromMonsterRows(rowsToRemove);
+            SyncFromBtFileNameDelta(btFileNamesToUpsert, btFileNamesToRemove, options);
+        }
+
+        /// <summary>
+        /// BtFileName 문자열 변경분만 Addressables에 증분 반영합니다.
+        /// monster / monster_phase 공통 후처리에서 함께 사용하는 진입점입니다.
+        /// </summary>
+        /// <param name="btFileNamesToUpsert">등록/갱신 후보 BtFileName 목록입니다.</param>
+        /// <param name="btFileNamesToRemove">삭제 후보 BtFileName 목록입니다.</param>
+        /// <param name="options">동기화 옵션입니다. null이면 기본 옵션을 사용합니다.</param>
+        public static void SyncFromBtFileNameDelta(
+            IReadOnlyList<string> btFileNamesToUpsert,
+            IReadOnlyList<string> btFileNamesToRemove,
+            SettingMonsterBtOptions options = null)
+        {
             options ??= new SettingMonsterBtOptions();
 
-            bool hasUpsert = rowsToUpsert != null && rowsToUpsert.Count > 0;
-            bool hasRemove = rowsToRemove != null && rowsToRemove.Count > 0;
+            bool hasUpsert = btFileNamesToUpsert != null && btFileNamesToUpsert.Count > 0;
+            bool hasRemove = btFileNamesToRemove != null && btFileNamesToRemove.Count > 0;
             if (!hasUpsert && !hasRemove)
                 return;
 
@@ -153,9 +170,9 @@ namespace GGemCo2DAiBtEditor
             if (hasRemove)
             {
                 var uniqueRemoveCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < rowsToRemove.Count; i++)
+                for (int i = 0; i < btFileNamesToRemove.Count; i++)
                 {
-                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(rowsToRemove[i]?.BtFileName);
+                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(btFileNamesToRemove[i]);
                     if (string.IsNullOrWhiteSpace(btFileName))
                         continue;
                     if (!uniqueRemoveCandidates.Add(btFileName))
@@ -172,9 +189,9 @@ namespace GGemCo2DAiBtEditor
             if (hasUpsert)
             {
                 var uniqueUpsertCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                for (int i = 0; i < rowsToUpsert.Count; i++)
+                for (int i = 0; i < btFileNamesToUpsert.Count; i++)
                 {
-                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(rowsToUpsert[i]?.BtFileName);
+                    string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(btFileNamesToUpsert[i]);
                     if (string.IsNullOrWhiteSpace(btFileName))
                         continue;
                     if (!uniqueUpsertCandidates.Add(btFileName))
@@ -199,6 +216,32 @@ namespace GGemCo2DAiBtEditor
             {
                 EditorUtility.DisplayDialog(Title, completedMessage, "OK");
             }
+        }
+
+        /// <summary>
+        /// monster 행 목록에서 BtFileName을 정규화해 중복 없는 문자열 목록으로 변환합니다.
+        /// </summary>
+        /// <param name="rows">monster 행 목록입니다.</param>
+        /// <returns>정규화된 BtFileName 목록입니다.</returns>
+        private static IReadOnlyList<string> ExtractNormalizedBtFileNamesFromMonsterRows(IReadOnlyList<StruckTableMonster> rows)
+        {
+            if (rows == null || rows.Count == 0)
+                return Array.Empty<string>();
+
+            var result = new List<string>(rows.Count);
+            var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                string btFileName = ConfigAddressablePathAiBt.MonsterBt.NormalizeRelativePath(rows[i]?.BtFileName);
+                if (string.IsNullOrWhiteSpace(btFileName))
+                    continue;
+                if (!unique.Add(btFileName))
+                    continue;
+
+                result.Add(btFileName);
+            }
+
+            return result;
         }
 
         /// <summary>
