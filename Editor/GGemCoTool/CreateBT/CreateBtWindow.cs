@@ -22,6 +22,7 @@ namespace GGemCo2DAiBtEditor
         private const float BottomDebugHeight = 300f;
 
         private MonsterBehaviorTreeAsset _asset;
+        private ObjectField _assetField;
 
         private BtGraphView _graphView;
         private VisualElement _inspectorRoot;
@@ -64,6 +65,10 @@ namespace GGemCo2DAiBtEditor
         [MenuItem(ConfigEditorAiBt.NameToolCreateBt, false, (int)ConfigEditorAiBt.ToolOrdering.CreateBt)]
         public static void OpenMenu() => Open(null);
 
+        /// <summary>
+        /// BT 생성/테스트 툴 창을 열고, 전달된 트리 에셋을 편집 대상으로 설정한다.
+        /// </summary>
+        /// <param name="asset">편집할 BT 에셋</param>
         public static void Open(MonsterBehaviorTreeAsset asset)
         {
             var wnd = GetWindow<CreateBtWindow>();
@@ -78,9 +83,34 @@ namespace GGemCo2DAiBtEditor
             RegisterUndoCallbacks();
         }
 
+        /// <summary>
+        /// 프로젝트 선택이 바뀔 때 선택된 BT 에셋을 툴 창에 동기화한다.
+        /// </summary>
+        private void OnSelectionChange()
+        {
+            if (Selection.activeObject is not MonsterBehaviorTreeAsset selectedAsset)
+            {
+                return;
+            }
+
+            if (_asset == selectedAsset)
+            {
+                return;
+            }
+
+            // 인스펙터에서 편집 대상을 선택한 흐름을 툴 창의 Tree Asset 필드/그래프와 동일하게 맞춘다.
+            SetAsset(selectedAsset);
+            Repaint();
+        }
+
+        /// <summary>
+        /// 현재 창의 편집 대상 BT 에셋을 설정하고 관련 UI를 갱신한다.
+        /// </summary>
+        /// <param name="asset">새 편집 대상 BT 에셋</param>
         private void SetAsset(MonsterBehaviorTreeAsset asset)
         {
             _asset = asset;
+            SyncAssetFieldValue(asset);
 
             if (_graphView != null)
             {
@@ -92,6 +122,26 @@ namespace GGemCo2DAiBtEditor
             RefreshInspector(_selectedNodeId);
             UpdateDebugView();
             UpdateStatus();
+        }
+
+        /// <summary>
+        /// Tree Asset ObjectField의 표시 값을 현재 편집 대상과 동기화한다.
+        /// </summary>
+        /// <param name="asset">필드에 반영할 BT 에셋</param>
+        private void SyncAssetFieldValue(MonsterBehaviorTreeAsset asset)
+        {
+            if (_assetField == null)
+            {
+                return;
+            }
+
+            if (_assetField.value == asset)
+            {
+                return;
+            }
+
+            // SetValueWithoutNotify를 사용해 UI 표시만 갱신하고 value changed 콜백 재진입을 방지한다.
+            _assetField.SetValueWithoutNotify(asset);
         }
 
         private void CreateGUI()
@@ -200,14 +250,14 @@ namespace GGemCo2DAiBtEditor
         {
             var toolbar = new Toolbar();
 
-            var assetField = new ObjectField("Tree Asset")
+            _assetField = new ObjectField("Tree Asset")
             {
                 objectType = typeof(MonsterBehaviorTreeAsset),
                 allowSceneObjects = false,
                 value = _asset
             };
-            assetField.RegisterValueChangedCallback(evt => SetAsset(evt.newValue as MonsterBehaviorTreeAsset));
-            toolbar.Add(assetField);
+            _assetField.RegisterValueChangedCallback(evt => SetAsset(evt.newValue as MonsterBehaviorTreeAsset));
+            toolbar.Add(_assetField);
 
             toolbar.Add(new ToolbarSpacer());
 
