@@ -1499,21 +1499,22 @@ namespace GGemCo2DAiBt
 
                 var nodeState = Runtime.GetOrCreateNodeState(executionKey, node.id);
 
-                // 스킬 실행 중에는 이동 의도를 끊고 대기 상태를 유지해 스킬 연출/판정 프레임을 보호한다.
+                // 스킬 실행 중에는 대기 애니메이션으로 강제 전환하지 않고, 이전 BT 이동 의도만 제거한다.
+                // 스킬 연출/판정 프레임을 보호하면서도 직전 MoveToTarget 입력이 프레임 루프에 남아 미끄러지는 현상을 막는다.
                 if (SkillDriver != null && SkillDriver.IsSkillBusy)
                 {
-                    // if (DebugLog)
-                    //     LogBtTrace(Owner, $"RequestWait from MoveToTarget(skillBusy). frame={Time.frameCount}, tick={Runtime.TickIndex}, executionKey={executionKey}");
+                    Driver.RequestStopMoveIntent();
                     failureReason = BtDebugReason.SkillBusy;
-                    detail = "skill busy. move request blocked";
+                    detail = "skill busy. move intent cleared";
                     return BtStatus.Failure;
                 }
 
                 if (!Driver.TryGetTarget(out var target) || target == null)
                 {
+                    Driver.RequestStopMoveIntent();
                     nodeState.MoveInAttackRangeLastTick = false;
                     failureReason = BtDebugReason.NoTarget;
-                    detail = "target missing";
+                    detail = "target missing. move intent cleared";
                     return BtStatus.Failure;
                 }
 
@@ -1557,7 +1558,8 @@ namespace GGemCo2DAiBt
                 Vector2 dir = new Vector2(raw.x, raw.y);
                 if (dir.sqrMagnitude <= 0.000001f)
                 {
-                    detail = "already at target";
+                    Driver.RequestStopMoveIntent();
+                    detail = "already at target. move intent cleared";
                     return BtStatus.Success;
                 }
 
@@ -1567,8 +1569,9 @@ namespace GGemCo2DAiBt
                     return BtStatus.Running;
                 }
 
+                Driver.RequestStopMoveIntent();
                 failureReason = ConvertMoveFailureToDebugReason(moveFailure);
-                detail = $"move rejected. reason={moveFailure}, distance={distance:0.###}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}";
+                detail = $"move rejected. reason={moveFailure}, distance={distance:0.###}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}. move intent cleared";
                 return BtStatus.Failure;
             }
 
