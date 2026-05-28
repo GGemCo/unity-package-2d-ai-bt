@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR
+#if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -550,7 +550,7 @@ namespace GGemCo2DAiBtEditor
             if (string.Equals(nodeTypeId, "Condition.LastSkillCombatOutcome", StringComparison.Ordinal) &&
                 string.Equals(key, "outcome", StringComparison.Ordinal))
             {
-                options = new[] { "Hit", "Guarded", "JustGuarded", "Missed", "Immune", "Evaded" };
+                options = new[] { "Hit", "Guarded", "JustGuarded", "Missed", "Immune", "Evaded", "GuardBroken" };
                 return true;
             }
 
