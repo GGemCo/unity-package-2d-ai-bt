@@ -75,10 +75,19 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
-        /// 제네릭을 사용하여 Addressables에서 설정을 로드하는 함수
+        /// 개발용 Settings Override를 먼저 확인한 뒤, 없으면 Addressables에서 서비스용 Settings를 로드합니다.
         /// </summary>
+        /// <typeparam name="T">로드할 ScriptableObject 타입입니다.</typeparam>
+        /// <param name="key">서비스용 Settings Addressables Key입니다.</param>
+        /// <returns>개발용 또는 서비스용 Settings 에셋입니다.</returns>
         private async Task<T> LoadSettingsAsync<T>(string key) where T : ScriptableObject
         {
+            // 에디터 Play Mode에서 작업자별 개발용 Settings가 등록되어 있으면 서비스용 Addressables보다 먼저 사용합니다.
+            if (SettingsRuntimeResolver.TryGetOverride(key, out T overrideSettings))
+            {
+                return overrideSettings;
+            }
+
             // 키가 Addressables에 등록되어 있는지 확인
             var locationsHandle = Addressables.LoadResourceLocationsAsync(key);
             await locationsHandle.Task;
