@@ -15,7 +15,7 @@ namespace GGemCo2DAiBt
 
         private void OnEnable()
         {
-            CharacterManager.OnCharacterSpawned += OnCharacterSpawned;
+            CharacterManager.OnCharacterActivated += OnCharacterActivated;
             CharacterManager.OnCharacterDestroyed += OnCharacterDestroyed;
 
             // MapLoadCharacters가 스폰 완료 대기를 위해 호출하는 비동기 Hook.
@@ -25,14 +25,18 @@ namespace GGemCo2DAiBt
 
         private void OnDisable()
         {
-            CharacterManager.OnCharacterSpawned -= OnCharacterSpawned;
+            CharacterManager.OnCharacterActivated -= OnCharacterActivated;
             CharacterManager.OnCharacterDestroyed -= OnCharacterDestroyed;
 
             CharacterSpawnHooks.OnCharacterSpawnedAsync -= OnCharacterSpawnedAsync;
             CharacterSpawnHooks.OnMapUnload -= OnMapUnload;
         }
 
-        private void OnCharacterSpawned(CharacterBase ch)
+        /// <summary>
+        /// 캐릭터가 Core 초기화를 마친 뒤 Skill 드라이버 연결을 보장합니다.
+        /// </summary>
+        /// <param name="ch">초기화가 완료된 캐릭터입니다.</param>
+        private void OnCharacterActivated(CharacterBase ch)
         {
             if (!addIfMissing)
                 return;
@@ -45,6 +49,8 @@ namespace GGemCo2DAiBt
             var skillExecutor = ch.gameObject.GetComponent<SkillExecutor>();
             if (skillExecutor == null)
                 skillExecutor = ch.gameObject.AddComponent<SkillExecutor>();
+            skillExecutor.Initialize(null);
+            skillExecutor.Activate(null);
 
             // 캐릭터 유형에 맞는 스킬 드라이버를 연결합니다.
             if (ch.IsPlayer())
@@ -70,27 +76,59 @@ namespace GGemCo2DAiBt
         /// </summary>
         /// <param name="ch">스폰된 캐릭터입니다.</param>
         /// <returns>비동기 초기화 작업입니다.</returns>
-        private Task OnCharacterSpawnedAsync(CharacterBase ch)
+        private async Task OnCharacterSpawnedAsync(CharacterBase ch)
         {
             if (ch == null || !ch.IsMonster())
-                return Task.CompletedTask;
+                return;
+
+            await WaitForCharacterInitializedAsync(ch);
 
             if (TableLoaderManager.Instance == null)
-                return Task.CompletedTask;
+                return;
 
             var info = TableLoaderManager.Instance.TableMonster.GetDataByUid(ch.uid);
             if (GcLogger.IsNull(info, $"몬스터 테이블에 정보가 없습니다. uid: {ch.uid}"))
-                return Task.CompletedTask;
+                return;
 
             var monster = ch as Monster;
             if (monster == null)
-                return Task.CompletedTask;
+                return;
 
             if (TryGetPhaseRows(ch.uid, out IReadOnlyList<StruckTableMonsterPhase> phaseRows))
-                return SetupPhaseBtAsync(monster, info, phaseRows);
+            {
+                await SetupPhaseBtAsync(monster, info, phaseRows);
+                return;
+            }
 
             DisablePhaseOrchestrator(monster.gameObject);
-            return SetupSingleBtOrLegacyAsync(monster.gameObject, info);
+            await SetupSingleBtOrLegacyAsync(monster.gameObject, info);
+        }
+
+        /// <summary>
+        /// 캐릭터 테이블/애니메이션/리젠 데이터 초기화가 끝날 때까지 대기합니다.
+        /// </summary>
+        /// <param name="ch">초기화 완료를 기다릴 캐릭터입니다.</param>
+        /// <returns>캐릭터 초기화 완료 후 종료되는 작업입니다.</returns>
+        private static Task WaitForCharacterInitializedAsync(CharacterBase ch)
+        {
+            if (ch == null || ch.IsInitialized)
+                return Task.CompletedTask;
+
+            var completion = new TaskCompletionSource<bool>();
+            void HandleInitialized()
+            {
+                ch.Initialized -= HandleInitialized;
+                completion.TrySetResult(true);
+            }
+
+            ch.Initialized += HandleInitialized;
+            if (ch.IsInitialized)
+            {
+                ch.Initialized -= HandleInitialized;
+                return Task.CompletedTask;
+            }
+
+            return completion.Task;
         }
 
         /// <summary>
@@ -120,7 +158,8 @@ namespace GGemCo2DAiBt
             var runner = owner.GetComponent<MonsterBtRunner>();
             if (runner == null)
                 runner = owner.AddComponent<MonsterBtRunner>();
-            runner.enabled = true;
+            runner.Initialize(null);
+            runner.Activate(null);
 
             var orchestrator = owner.GetComponent<MonsterBtPhaseOrchestrator>();
             if (orchestrator == null)
@@ -154,7 +193,7 @@ namespace GGemCo2DAiBt
             if (string.IsNullOrWhiteSpace(btRelativePath) || string.IsNullOrWhiteSpace(btKey))
             {
                 if (runner != null)
-                    runner.enabled = false;
+                    runner.Deinitialize();
 
                 if (addIfMissing)
                 {
@@ -171,7 +210,8 @@ namespace GGemCo2DAiBt
 
             if (runner == null)
                 runner = owner.AddComponent<MonsterBtRunner>();
-            runner.enabled = true;
+            runner.Initialize(null);
+            runner.Activate(null);
 
             await AddressableLoaderMonsterBt.LoadAndApplyAsync(
                 btKey,
@@ -208,7 +248,11 @@ namespace GGemCo2DAiBt
 
         private void OnCharacterDestroyed(CharacterBase ch)
         {
-            // 필요 시 언바인드/풀 반환/로그 등 처리
+            if (ch == null)
+                return;
+
+            var runner = ch.GetComponent<MonsterBtRunner>();
+            runner?.Deinitialize();
         }
     }
 }

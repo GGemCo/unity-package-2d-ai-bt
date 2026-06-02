@@ -16,7 +16,7 @@ namespace GGemCo2DAiBt
     /// - Core 패키지는 본 BT 패키지를 참조하지 않는다(의존성 단방향).
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle, IMonsterBrainRuntimeResettable
+    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle, IMonsterBrainRuntimeResettable, IGameInitializable, IGameActivatable, IGameDeinitializable
     {
         private MonsterBehaviorTreeAsset _treeAsset;
 
@@ -78,12 +78,19 @@ namespace GGemCo2DAiBt
         private int _debugStepRequestCount;
         private bool _hasPendingTreeChange;
         private bool _hasPendingRuntimeResetForCulling;
+        private bool _isInitialized;
+        private bool _isActivated;
         private MonsterBehaviorTreeAsset _pendingTreeAsset;
         private BtTreeSwitchMode _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
 
         public int Priority => 100;
 
-        public bool IsActive => enabled && isActiveAndEnabled && _treeAsset != null &&
+        /// <summary>
+        /// 몬스터 캐릭터 초기화 이후에 실행되어야 하므로 기본 초기화 단계에서 처리합니다.
+        /// </summary>
+        public int InitializeOrder => 0;
+
+        public bool IsActive => _isInitialized && _isActivated && enabled && isActiveAndEnabled && _treeAsset != null &&
                                 !string.IsNullOrEmpty(_treeAsset.rootNodeId);
 
         /// <summary>
@@ -249,14 +256,65 @@ namespace GGemCo2DAiBt
         {
             RebuildCache();
             _ownerCharacterBase = GetComponent<CharacterBase>();
+        }
 
-            var aiBtSettings = AddressableLoaderSettingsAiBt.Instance.aiBtSettings;
+        /// <summary>
+        /// AI BT 설정을 읽고 런타임 캐시를 준비합니다.
+        /// </summary>
+        /// <param name="context">초기화 컨텍스트입니다. AI BT 설정은 패키지 전용 Addressables 로더에서 조회합니다.</param>
+        public void Initialize(GameInitContext context)
+        {
+            if (_isInitialized)
+                return;
+
+            RebuildCache();
+            _ownerCharacterBase = GetComponent<CharacterBase>();
+            if (!ApplySettings())
+                return;
+
+            _isInitialized = true;
+        }
+
+        /// <summary>
+        /// 캐릭터와 Skill/Control 드라이버 연결 이후 BT Tick을 허용합니다.
+        /// </summary>
+        /// <param name="context">초기화 컨텍스트입니다.</param>
+        public void Activate(GameInitContext context)
+        {
+            if (!_isInitialized)
+                Initialize(context);
+
+            if (!_isInitialized)
+                return;
+
+            _isActivated = true;
+            enabled = true;
+            _nextTickTime = 0f;
+        }
+
+        /// <summary>
+        /// BT Tick을 중지하고 활성화 상태를 해제합니다.
+        /// </summary>
+        public void Deinitialize()
+        {
+            _isActivated = false;
+            enabled = false;
+        }
+
+        /// <summary>
+        /// Addressables로 로드된 AI BT 설정을 현재 런너에 반영합니다.
+        /// </summary>
+        private bool ApplySettings()
+        {
+            var aiBtSettings = AddressableLoaderSettingsAiBt.Instance != null
+                ? AddressableLoaderSettingsAiBt.Instance.aiBtSettings
+                : null;
             if (GcLogger.IsNull(aiBtSettings, $"{nameof(GGemCoAiBtSettings)}이 설정되어 있지 않습니다."))
             {
                 enabled = false;
-                return;
+                return false;
             }
-            
+
             _tickRateHz = aiBtSettings.tickRateHz;
             _enableDebug = aiBtSettings.EnableDebug;
             _enableDebugLog = aiBtSettings.enableDebugLog;
@@ -271,6 +329,8 @@ namespace GGemCo2DAiBt
                 _enableDebugTrace = false;
                 _enableDebugBreakpoints = false;
             }
+
+            return true;
         }
 
         private void OnEnable()
@@ -286,6 +346,7 @@ namespace GGemCo2DAiBt
             _pendingSwitchMode = BtTreeSwitchMode.ResetAll;
             _isExecuting = false;
             _breakTriggeredThisTick = false;
+            _isActivated = false;
             _debugStepRequestCount = 0;
             _nextTickTime = 0f;
             DebugFreeze = false;
@@ -332,6 +393,9 @@ namespace GGemCo2DAiBt
 
         public void Tick()
         {
+            if (!_isInitialized || !_isActivated)
+                return;
+
             if (_hasPendingTreeChange)
             {
                 ApplyTreeChange(_pendingTreeAsset, _pendingSwitchMode);
