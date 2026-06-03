@@ -1582,7 +1582,9 @@ namespace GGemCo2DAiBt
                     return BtStatus.Failure;
                 }
 
-                bool inAttackRange = Driver.IsTargetInAttackRange();
+                bool inAttackRange = Driver is IMonsterMoveStopRangeProvider moveStopRangeProvider
+                    ? moveStopRangeProvider.IsTargetInMoveStopRange()
+                    : Driver.IsTargetInAttackRange();
                 bool stopOnAttackRange = GetBoolParam(node, "stopOnAttackRange", fallback: true);
                 bool restartOnAttackRange = GetBoolParam(node, "restartOnAttackRange", fallback: true);
                 if (inAttackRange)
