@@ -607,7 +607,7 @@ namespace GGemCo2DAiBt
             _owner.BaseHp = normalizedBaseHp;
             _owner.RecalculateStats();
 
-            long resolvedTotalHp = _owner.TotalHp.Value > 0 ? _owner.TotalHp.Value : normalizedStartHp;
+            long resolvedTotalHp = _owner.MaxHp.Value > 0 ? _owner.MaxHp.Value : normalizedStartHp;
             long clampedCurrentHp = Math.Clamp(normalizedStartHp, 0L, resolvedTotalHp);
             _owner.CurrentHp.OnNext(clampedCurrentHp);
         }
