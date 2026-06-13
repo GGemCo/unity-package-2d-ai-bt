@@ -268,6 +268,8 @@ namespace GGemCo2DAiBtEditor
         {
             string canUse = NewId();
             string inCastRange = NewId();
+            string canReserveSlot = NewId();
+            string reserveSlot = NewId();
             string stop = NewId();
             string face = NewId();
             string useSkill = NewId();
@@ -278,7 +280,7 @@ namespace GGemCo2DAiBtEditor
                 kind = BtNodeKind.Composite,
                 typeId = BtTypeIds.Composite.Sequence,
                 title = $"CastSkill({skillUid})",
-                children = { canUse, inCastRange, stop, face, useSkill },
+                children = { canUse, inCastRange, canReserveSlot, reserveSlot, stop, face, useSkill },
                 graphPosition = new Vector2(1020f, 300f),
             });
             asset.nodes.Add(new BtNodeRecord
@@ -307,6 +309,22 @@ namespace GGemCo2DAiBtEditor
                     new BtParamValue { key = "extraMargin", valueType = BtValueType.Float, floatValue = 0f },
                 },
                 graphPosition = new Vector2(1360f, 290f),
+            });
+            asset.nodes.Add(new BtNodeRecord
+            {
+                id = canReserveSlot,
+                kind = BtNodeKind.Condition,
+                typeId = BtTypeIds.Condition.CanReserveAttackSlot,
+                title = "CanReserveAttackSlot",
+                graphPosition = new Vector2(1360f, 340f),
+            });
+            asset.nodes.Add(new BtNodeRecord
+            {
+                id = reserveSlot,
+                kind = BtNodeKind.Action,
+                typeId = BtTypeIds.Action.ReserveAttackSlot,
+                title = "ReserveAttackSlot",
+                graphPosition = new Vector2(1360f, 390f),
             });
             asset.nodes.Add(new BtNodeRecord
             {
@@ -385,6 +403,9 @@ namespace GGemCo2DAiBtEditor
             string stop = NewId();
             string face = NewId();
             string cooldown = NewId();
+            string attackWithSlot = NewId();
+            string canReserveSlot = NewId();
+            string reserveSlot = NewId();
             string attack = NewId();
 
             asset.nodes.Add(new BtNodeRecord
@@ -426,7 +447,7 @@ namespace GGemCo2DAiBtEditor
                 kind = BtNodeKind.Decorator,
                 typeId = BtTypeIds.Decorator.Cooldown,
                 title = "Cooldown(atk_basic)",
-                children = { attack },
+                children = { attackWithSlot },
                 parameters =
                 {
                     new BtParamValue { key = "key", valueType = BtValueType.String, stringValue = "atk_basic" },
@@ -436,11 +457,36 @@ namespace GGemCo2DAiBtEditor
             });
             asset.nodes.Add(new BtNodeRecord
             {
+                id = attackWithSlot,
+                kind = BtNodeKind.Composite,
+                typeId = BtTypeIds.Composite.Sequence,
+                title = "ReserveAndAttack",
+                children = { canReserveSlot, reserveSlot, attack },
+                graphPosition = new Vector2(1680f, 460f),
+            });
+            asset.nodes.Add(new BtNodeRecord
+            {
+                id = canReserveSlot,
+                kind = BtNodeKind.Condition,
+                typeId = BtTypeIds.Condition.CanReserveAttackSlot,
+                title = "CanReserveAttackSlot",
+                graphPosition = new Vector2(2000f, 390f),
+            });
+            asset.nodes.Add(new BtNodeRecord
+            {
+                id = reserveSlot,
+                kind = BtNodeKind.Action,
+                typeId = BtTypeIds.Action.ReserveAttackSlot,
+                title = "ReserveAttackSlot",
+                graphPosition = new Vector2(2000f, 460f),
+            });
+            asset.nodes.Add(new BtNodeRecord
+            {
                 id = attack,
                 kind = BtNodeKind.Action,
                 typeId = BtTypeIds.Action.AttackBasic,
                 title = "AttackBasic",
-                graphPosition = new Vector2(1680f, 460f),
+                graphPosition = new Vector2(2000f, 530f),
             });
         }
 

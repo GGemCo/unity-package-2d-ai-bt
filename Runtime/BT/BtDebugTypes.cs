@@ -102,6 +102,12 @@ namespace GGemCo2DAiBt
         LeashReturnStarted,
         /// <summary>Leash Provider가 Evade 요청을 거부함.</summary>
         LeashRequestRejected,
+        /// <summary>공격 슬롯 Provider가 연결되지 않음.</summary>
+        AttackSlotProviderMissing,
+        /// <summary>동일 대상의 공격 슬롯이 모두 예약되어 행동을 시작할 수 없음.</summary>
+        AttackSlotUnavailable,
+        /// <summary>공격 슬롯 예약에 성공함.</summary>
+        AttackSlotReserved,
     }
 
     /// <summary>

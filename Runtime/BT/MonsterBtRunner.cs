@@ -1059,6 +1059,59 @@ namespace GGemCo2DAiBt
                     break;
                 }
 
+                case BtTypeIds.Condition.CanReserveAttackSlot:
+                case BtTypeIds.Condition.HasAttackSlotReservation:
+                {
+                    IMonsterAttackSlotProvider slotProvider =
+                        ctx.Driver as IMonsterAttackSlotProvider;
+
+                    bool hasProvider = slotProvider != null;
+                    bool slotEnabled = hasProvider && slotProvider.IsAttackSlotEnabled;
+
+                    // 슬롯 시스템이 비활성화됐거나 Provider가 없는 기존 몬스터는
+                    // 호환성을 위해 조건을 통과시킵니다.
+                    if (!slotEnabled)
+                    {
+                        ok = true;
+                    }
+                    else if (node.typeId == BtTypeIds.Condition.CanReserveAttackSlot)
+                    {
+                        ok = slotProvider.CanReserveAttackSlot();
+                    }
+                    else
+                    {
+                        ok = slotProvider.HasAttackSlotReservation;
+                    }
+
+                    string title = node.typeId == BtTypeIds.Condition.CanReserveAttackSlot
+                        ? "CanReserveAttackSlot"
+                        : "HasAttackSlotReservation";
+
+                    bool hasReservation =
+                        hasProvider && slotProvider.HasAttackSlotReservation;
+
+                    int reservedSlotIndex =
+                        hasProvider ? slotProvider.ReservedAttackSlotIndex : -1;
+
+                    AddMetric(node.id, executionKey, "AttackSlotEnabled", slotEnabled ? 1f : 0f);
+                    AddMetric(node.id, executionKey, "HasAttackSlotReservation", hasReservation ? 1f : 0f);
+                    AddMetric(node.id, executionKey, "AttackSlotIndex", reservedSlotIndex);
+
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Condition, title,
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok
+                            ? BtDebugReason.None
+                            : hasProvider
+                                ? BtDebugReason.AttackSlotUnavailable
+                                : BtDebugReason.AttackSlotProviderMissing,
+                        !hasProvider
+                            ? "attack slot provider missing; compatibility pass"
+                            : $"enabled={slotEnabled}, reserved={hasReservation}, " +
+                              $"slotIndex={reservedSlotIndex}, result={ok}");
+
+                    break;
+                }
+
                 case BtTypeIds.Condition.HpPercentBelow:
                 {
                     float threshold = Mathf.Clamp01(ctx.GetFloatParam(node, "threshold", 0.25f));
@@ -1447,6 +1500,40 @@ namespace GGemCo2DAiBt
                     return st;
                 }
 
+                case BtTypeIds.Action.ReserveAttackSlot:
+                {
+                    if (ctx.Driver is not IMonsterAttackSlotProvider slotProvider)
+                    {
+                        AddEvent(node.id, executionKey, BtDebugEventKind.Action, "ReserveAttackSlot", BtStatus.Success, BtDebugReason.AttackSlotProviderMissing, "provider missing; compatibility pass");
+                        return BtStatus.Success;
+                    }
+
+                    bool reserved = !slotProvider.IsAttackSlotEnabled || slotProvider.TryReserveAttackSlot();
+                    AddMetric(node.id, executionKey, "AttackSlotEnabled", slotProvider.IsAttackSlotEnabled ? 1f : 0f);
+                    AddMetric(node.id, executionKey, "AttackSlotIndex", slotProvider.ReservedAttackSlotIndex);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Action,
+                        "ReserveAttackSlot",
+                        reserved ? BtStatus.Success : BtStatus.Failure,
+                        reserved ? BtDebugReason.AttackSlotReserved : BtDebugReason.AttackSlotUnavailable,
+                        reserved
+                            ? $"reserved={slotProvider.HasAttackSlotReservation}, slotIndex={slotProvider.ReservedAttackSlotIndex}"
+                            : "all attack slots are occupied");
+                    return reserved ? BtStatus.Success : BtStatus.Failure;
+                }
+
+                case BtTypeIds.Action.ReleaseAttackSlot:
+                {
+                    if (ctx.Driver is IMonsterAttackSlotProvider slotProvider)
+                    {
+                        slotProvider.ReleaseAttackSlot();
+                    }
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "ReleaseAttackSlot", BtStatus.Success, BtDebugReason.None, "attack slot released");
+                    return BtStatus.Success;
+                }
+
                 case BtTypeIds.Action.AttackBasic:
                     ctx.Driver.RequestAttackOnce();
                     AddEvent(node.id, executionKey, BtDebugEventKind.Action, "AttackBasic", BtStatus.Success, BtDebugReason.None, "RequestAttackOnce()");
@@ -1808,6 +1895,26 @@ namespace GGemCo2DAiBt
                 }
 
                 return Driver.IsAggro && Driver.TryGetTarget(out Transform legacyTarget) && legacyTarget != null;
+            }
+
+            /// <summary>
+            /// 현재 전투 대상의 공격 슬롯을 예약할 수 있는지 확인합니다.
+            /// </summary>
+            public bool CanReserveAttackSlot()
+            {
+                return Driver is not IMonsterAttackSlotProvider slotProvider ||
+                       !slotProvider.IsAttackSlotEnabled ||
+                       slotProvider.CanReserveAttackSlot();
+            }
+
+            /// <summary>
+            /// 현재 유효한 공격 슬롯 예약을 보유하는지 확인합니다.
+            /// </summary>
+            public bool HasAttackSlotReservation()
+            {
+                return Driver is not IMonsterAttackSlotProvider slotProvider ||
+                       !slotProvider.IsAttackSlotEnabled ||
+                       slotProvider.HasAttackSlotReservation;
             }
 
             /// <summary>

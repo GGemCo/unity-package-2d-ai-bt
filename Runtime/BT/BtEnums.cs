@@ -95,6 +95,12 @@ namespace GGemCo2DAiBt
 
             /// <summary>몬스터가 홈 복귀 또는 재활성 대기 중인지 확인합니다.</summary>
             public const string IsReturningHome = "Condition.IsReturningHome";
+
+            /// <summary>현재 대상의 공격 슬롯을 예약할 수 있는지 확인합니다.</summary>
+            public const string CanReserveAttackSlot = "Condition.CanReserveAttackSlot";
+
+            /// <summary>현재 유효한 공격 슬롯 예약을 보유하는지 확인합니다.</summary>
+            public const string HasAttackSlotReservation = "Condition.HasAttackSlotReservation";
             public const string HpPercentBelow = "Condition.HpPercentBelow";
             public const string TargetWithinDistance = "Condition.TargetWithinDistance";
             public const string CanUseSkill = "Condition.CanUseSkill";
@@ -134,6 +140,12 @@ namespace GGemCo2DAiBt
 
             /// <summary>현재 Threat와 전투 타겟 관계를 모두 해제합니다.</summary>
             public const string ReleaseCombatTarget = "Action.ReleaseCombatTarget";
+
+            /// <summary>현재 전투 대상의 공격 슬롯을 예약합니다.</summary>
+            public const string ReserveAttackSlot = "Action.ReserveAttackSlot";
+
+            /// <summary>현재 보유한 공격 슬롯을 즉시 반환합니다.</summary>
+            public const string ReleaseAttackSlot = "Action.ReleaseAttackSlot";
 
             /// <summary>기존 BT 에셋 호환을 위한 레거시 어그로 해제 액션입니다.</summary>
             public const string ClearAggro = "Action.ClearAggro";

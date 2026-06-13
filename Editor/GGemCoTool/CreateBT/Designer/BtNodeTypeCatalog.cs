@@ -63,6 +63,8 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsOutsideSoftLeash, DisplayName = "Outside Soft Leash" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsOutsideHardLeash, DisplayName = "Outside Hard Leash" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsReturningHome, DisplayName = "Is Returning Home" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.CanReserveAttackSlot, DisplayName = "Can Reserve Attack Slot" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.HasAttackSlotReservation, DisplayName = "Has Attack Slot Reservation" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HpPercentBelow", DisplayName = "Hp Percent Below" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.TargetWithinDistance", DisplayName = "Target Within Distance" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
@@ -87,6 +89,8 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.RequestRestartRoot", DisplayName = "Request Restart Root" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.BeginEvade, DisplayName = "Begin Leash Evade" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.ReleaseCombatTarget, DisplayName = "Release Combat Target" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.ReserveAttackSlot, DisplayName = "Reserve Attack Slot" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.ReleaseAttackSlot, DisplayName = "Release Attack Slot" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.ClearAggro, DisplayName = "Clear Aggro (Legacy)" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ResetSkillUseCount", DisplayName = "Reset Skill Use Count" },
         };
