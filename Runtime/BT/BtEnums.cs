@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace GGemCo2DAiBt
 {
@@ -69,8 +69,32 @@ namespace GGemCo2DAiBt
 
         public static class Condition
         {
+            /// <summary>Threat 시스템에서 선택 가능한 현재 전투 타겟이 있는지 확인합니다.</summary>
+            public const string HasCombatTarget = "Condition.HasCombatTarget";
+
+            /// <summary>기존 BT 에셋 호환을 위한 레거시 전투 타겟 조건입니다.</summary>
             public const string HasAggroTarget = "Condition.HasAggroTarget";
+
+            /// <summary>현재 타겟이 기본 공격 시작 범위 안인지 확인합니다.</summary>
             public const string InAttackRange = "Condition.InAttackRange";
+
+            /// <summary>현재 타겟이 몬스터의 선호 전투 거리 구간 안인지 확인합니다.</summary>
+            public const string IsTargetInPreferredRange = "Condition.IsTargetInPreferredRange";
+
+            /// <summary>현재 타겟이 선호 전투 거리보다 가까운지 확인합니다.</summary>
+            public const string IsTargetTooClose = "Condition.IsTargetTooClose";
+
+            /// <summary>현재 타겟이 선호 전투 거리보다 먼지 확인합니다.</summary>
+            public const string IsTargetTooFar = "Condition.IsTargetTooFar";
+
+            /// <summary>몬스터 또는 타겟이 홈 기준 Soft Leash 범위를 벗어났는지 확인합니다.</summary>
+            public const string IsOutsideSoftLeash = "Condition.IsOutsideSoftLeash";
+
+            /// <summary>몬스터 또는 타겟이 홈 기준 Hard Leash 범위를 벗어났는지 확인합니다.</summary>
+            public const string IsOutsideHardLeash = "Condition.IsOutsideHardLeash";
+
+            /// <summary>몬스터가 홈 복귀 또는 재활성 대기 중인지 확인합니다.</summary>
+            public const string IsReturningHome = "Condition.IsReturningHome";
             public const string HpPercentBelow = "Condition.HpPercentBelow";
             public const string TargetWithinDistance = "Condition.TargetWithinDistance";
             public const string CanUseSkill = "Condition.CanUseSkill";
@@ -85,15 +109,33 @@ namespace GGemCo2DAiBt
 
         public static class Action
         {
+            /// <summary>Threat 목록을 평가하여 현재 전투 타겟을 선택합니다.</summary>
+            public const string SelectCombatTarget = "Action.SelectCombatTarget";
+
             public const string Wait = "Action.Wait";
             public const string WaitOneTick = "Action.WaitOneTick";
             public const string Stop = "Action.Stop";
             public const string FaceToTarget = "Action.FaceToTarget";
             public const string MoveToTarget = "Action.MoveToTarget";
+
+            /// <summary>선호 전투 거리 구간까지 접근하거나 후퇴합니다.</summary>
+            public const string MoveToPreferredRange = "Action.MoveToPreferredRange";
+
+            /// <summary>지정한 스킬의 CastRange 안까지 이동합니다.</summary>
+            public const string MoveToSkillRange = "Action.MoveToSkillRange";
+
             public const string AttackBasic = "Action.AttackBasic";
             public const string UseSkill = "Action.UseSkill";
             public const string UseSkillAndWait = "Action.UseSkillAndWait";
             public const string RequestRestartRoot = "Action.RequestRestartRoot";
+
+            /// <summary>Core Leash 시스템에 Evade 및 홈 복귀 시작을 요청합니다.</summary>
+            public const string BeginEvade = "Action.BeginEvade";
+
+            /// <summary>현재 Threat와 전투 타겟 관계를 모두 해제합니다.</summary>
+            public const string ReleaseCombatTarget = "Action.ReleaseCombatTarget";
+
+            /// <summary>기존 BT 에셋 호환을 위한 레거시 어그로 해제 액션입니다.</summary>
             public const string ClearAggro = "Action.ClearAggro";
             public const string ResetSkillUseCount = "Action.ResetSkillUseCount";
         }

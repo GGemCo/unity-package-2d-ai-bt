@@ -177,12 +177,12 @@ namespace GGemCo2DAiBtEditor
                     // - Action.UseSkill
                     if (IsSkillUidParam(node.typeId, def.Key))
                         return CreateSkillUidDropdownField(owner, asset, node, def, v, onChanged);
-                    
+
                     if (IsAffectUidParam(node.typeId, def.Key))
                     {
                         return CreateAffectUidDropdownField(owner, asset, node, def, v, onChanged);
                     }
-                    
+
                     var field = new IntegerField { value = v };
                     field.RegisterValueChangedCallback(evt =>
                     {
@@ -254,6 +254,9 @@ namespace GGemCo2DAiBtEditor
         }
 
         #region 스킬 선택 박스
+        /// <summary>
+        /// 지정한 노드 파라미터가 몬스터 스킬 테이블 선택 UI를 사용해야 하는지 확인합니다.
+        /// </summary>
         private static bool IsSkillUidParam(string nodeTypeId, string paramKey)
         {
             if (!string.Equals(paramKey, "skillUid", StringComparison.Ordinal))
@@ -262,6 +265,7 @@ namespace GGemCo2DAiBtEditor
             return string.Equals(nodeTypeId, "Condition.CanUseSkill", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Condition.IsSkillInCastRange", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Condition.SkillUseCountCompare", StringComparison.Ordinal)
+                   || string.Equals(nodeTypeId, "Action.MoveToSkillRange", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Action.UseSkill", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Action.UseSkillAndWait", StringComparison.Ordinal)
                    || string.Equals(nodeTypeId, "Condition.LastSkillResult", StringComparison.Ordinal)
@@ -321,7 +325,7 @@ namespace GGemCo2DAiBtEditor
             return button;
         }
         #endregion
-        
+
         private static bool IsAffectUidParam(string nodeTypeId, string paramKey)
         {
             if (!string.Equals(paramKey, "affectUid", StringComparison.Ordinal))
@@ -537,6 +541,13 @@ namespace GGemCo2DAiBtEditor
                 string.Equals(key, "mode", StringComparison.Ordinal))
             {
                 options = new[] { "AllReset", "ResetOne", "SetOne" };
+                return true;
+            }
+
+            if (string.Equals(nodeTypeId, BtTypeIds.Action.BeginEvade, StringComparison.Ordinal) &&
+                string.Equals(key, "trigger", StringComparison.Ordinal))
+            {
+                options = new[] { "Manual", "SoftLimit", "HardLimit" };
                 return true;
             }
 

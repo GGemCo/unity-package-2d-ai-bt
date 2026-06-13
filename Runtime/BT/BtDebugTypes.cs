@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace GGemCo2DAiBt
@@ -88,6 +88,20 @@ namespace GGemCo2DAiBt
         MoveRequestRejected,
         UnknownType,
         BreakpointMatched,
+        /// <summary>현재 타겟이 선호 전투 거리보다 가까움.</summary>
+        TargetTooClose,
+        /// <summary>현재 타겟이 선호 전투 거리보다 멂.</summary>
+        TargetTooFar,
+        /// <summary>선호 전투 거리 또는 스킬 사거리에 도달함.</summary>
+        DesiredRangeReached,
+        /// <summary>현재 Threat 목록에서 전투 타겟을 선택하지 못함.</summary>
+        CombatTargetSelectionFailed,
+        /// <summary>Leash 범위가 설정되지 않아 요청을 실행할 수 없음.</summary>
+        LeashNotConfigured,
+        /// <summary>Leash Evade 및 홈 복귀가 시작됨.</summary>
+        LeashReturnStarted,
+        /// <summary>Leash Provider가 Evade 요청을 거부함.</summary>
+        LeashRequestRejected,
     }
 
     /// <summary>

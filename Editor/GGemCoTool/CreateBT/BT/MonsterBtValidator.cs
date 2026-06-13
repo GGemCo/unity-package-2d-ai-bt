@@ -57,6 +57,8 @@ namespace GGemCo2DAiBtEditor
             if (!string.IsNullOrEmpty(asset.rootNodeId) && !nodeById.ContainsKey(asset.rootNodeId))
                 issues.Add(new Issue(Severity.Error, "BT004", $"Root node not found: {asset.rootNodeId}", asset.rootNodeId));
 
+            ValidateNodeDefinitions(nodeById, issues);
+
             // children rule + missing reference
             foreach (var kv in nodeById)
             {
@@ -143,6 +145,141 @@ namespace GGemCo2DAiBtEditor
             }
 
             return issues;
+        }
+
+        /// <summary>
+        /// 런타임 타입 카탈로그와 노드 파라미터 정의를 기준으로 에셋 정합성을 검사합니다.
+        /// </summary>
+        private static void ValidateNodeDefinitions(
+            Dictionary<string, BtNodeRecord> nodeById,
+            List<Issue> issues)
+        {
+            var typeDefs = new Dictionary<string, BtNodeTypeDef>(StringComparer.Ordinal);
+            for (int i = 0; i < BtNodeTypeCatalog.All.Count; i++)
+            {
+                BtNodeTypeDef def = BtNodeTypeCatalog.All[i];
+                if (def != null && !string.IsNullOrEmpty(def.TypeId))
+                    typeDefs[def.TypeId] = def;
+            }
+
+            foreach (KeyValuePair<string, BtNodeRecord> pair in nodeById)
+            {
+                BtNodeRecord node = pair.Value;
+                if (string.IsNullOrEmpty(node.typeId) || !typeDefs.TryGetValue(node.typeId, out BtNodeTypeDef typeDef))
+                {
+                    issues.Add(new Issue(Severity.Error, "BT050", $"Unsupported node typeId: {node.typeId}", node.id));
+                    continue;
+                }
+
+                if (node.kind != typeDef.Kind)
+                {
+                    issues.Add(new Issue(
+                        Severity.Error,
+                        "BT051",
+                        $"Node kind does not match typeId. kind={node.kind}, expected={typeDef.Kind}, typeId={node.typeId}",
+                        node.id));
+                }
+
+                ValidateParameters(node, issues);
+                ValidateCombatNodeSemantics(node, issues);
+            }
+        }
+
+        /// <summary>
+        /// 카탈로그에 선언된 필수 파라미터와 실제 저장 타입을 검사합니다.
+        /// </summary>
+        private static void ValidateParameters(BtNodeRecord node, List<Issue> issues)
+        {
+            IReadOnlyList<BtParamDef> defs = BtNodeTypeCatalog.GetParamDefs(node.typeId);
+            var actualByKey = new Dictionary<string, BtParamValue>(StringComparer.Ordinal);
+            if (node.parameters != null)
+            {
+                for (int i = 0; i < node.parameters.Count; i++)
+                {
+                    BtParamValue parameter = node.parameters[i];
+                    if (string.IsNullOrEmpty(parameter.key))
+                    {
+                        issues.Add(new Issue(Severity.Warning, "BT052", "Parameter key is empty.", node.id));
+                        continue;
+                    }
+
+                    if (!actualByKey.TryAdd(parameter.key, parameter))
+                    {
+                        issues.Add(new Issue(Severity.Warning, "BT053", $"Duplicate parameter key: {parameter.key}", node.id));
+                    }
+                }
+            }
+
+            for (int i = 0; i < defs.Count; i++)
+            {
+                BtParamDef def = defs[i];
+                if (!actualByKey.TryGetValue(def.Key, out BtParamValue actual))
+                {
+                    if (def.Required)
+                        issues.Add(new Issue(Severity.Error, "BT054", $"Required parameter is missing: {def.Key}", node.id));
+                    continue;
+                }
+
+                if (actual.valueType != def.ValueType)
+                {
+                    issues.Add(new Issue(
+                        Severity.Error,
+                        "BT055",
+                        $"Parameter type mismatch. key={def.Key}, actual={actual.valueType}, expected={def.ValueType}",
+                        node.id));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Threat, 거리, 스킬 및 Leash 노드의 의미상 잘못된 설정을 검사합니다.
+        /// </summary>
+        private static void ValidateCombatNodeSemantics(BtNodeRecord node, List<Issue> issues)
+        {
+            switch (node.typeId)
+            {
+                case BtTypeIds.Condition.HasAggroTarget:
+                    issues.Add(new Issue(Severity.Info, "BT060", "HasAggroTarget is a legacy node. Use HasCombatTarget for new trees.", node.id));
+                    break;
+
+                case BtTypeIds.Action.ClearAggro:
+                    issues.Add(new Issue(Severity.Info, "BT061", "ClearAggro is a legacy node. Use ReleaseCombatTarget for new trees.", node.id));
+                    break;
+
+                case BtTypeIds.Action.MoveToTarget:
+                    issues.Add(new Issue(Severity.Info, "BT062", "MoveToTarget is a legacy approach node. Prefer MoveToPreferredRange or MoveToSkillRange.", node.id));
+                    break;
+
+                case BtTypeIds.Condition.CanUseSkill:
+                case BtTypeIds.Condition.IsSkillInCastRange:
+                case BtTypeIds.Action.MoveToSkillRange:
+                case BtTypeIds.Action.UseSkill:
+                case BtTypeIds.Action.UseSkillAndWait:
+                    if (!BtParamValue.TryGetInt(node.parameters, "skillUid", out int skillUid) || skillUid <= 0)
+                    {
+                        issues.Add(new Issue(Severity.Error, "BT063", "skillUid must be greater than 0.", node.id));
+                    }
+
+                    if ((node.typeId == BtTypeIds.Action.UseSkill || node.typeId == BtTypeIds.Action.UseSkillAndWait) &&
+                        (!BtParamValue.TryGetBool(node.parameters, "validateCastRange", out bool validateCastRange) || !validateCastRange))
+                    {
+                        issues.Add(new Issue(
+                            Severity.Warning,
+                            "BT064",
+                            "Automatic CastRange validation is disabled. Add IsSkillInCastRange before this node or enable validateCastRange.",
+                            node.id));
+                    }
+                    break;
+
+                case BtTypeIds.Action.BeginEvade:
+                    if (BtParamValue.TryGetEnumString(node.parameters, "trigger", out string triggerText) &&
+                        !string.IsNullOrEmpty(triggerText) &&
+                        !Enum.TryParse(triggerText, true, out GGemCo2DCore.MonsterLeashTrigger _))
+                    {
+                        issues.Add(new Issue(Severity.Error, "BT065", $"Invalid leash trigger: {triggerText}", node.id));
+                    }
+                    break;
+            }
         }
 
         /// <summary>

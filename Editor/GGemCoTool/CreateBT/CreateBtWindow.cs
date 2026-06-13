@@ -31,6 +31,7 @@ namespace GGemCo2DAiBtEditor
         private Label _statusLabel;
 
         private string _selectedNodeId;
+        private int _skillPresetUid;
 
         // Debug attach
         private MonsterBtRunner _runner;
@@ -678,8 +679,36 @@ namespace GGemCo2DAiBtEditor
                 {
                     BtUndoUtility.RecordComplete(_asset, "Create BT Preset");
                     MonsterBtPresetBuilder.CreateMeleeBasicPreset(_asset);
-                    NotifyTreeChanged("Preset created.", selectNodeId: _asset.rootNodeId);
-                }) { text = "Create Example BT" });
+                    NotifyTreeChanged("Melee combat preset created.", selectNodeId: _asset.rootNodeId);
+                }) { text = "Create Melee Combat BT" });
+
+                var skillPresetUidField = new IntegerField("Monster Skill UID")
+                {
+                    value = _skillPresetUid,
+                };
+                skillPresetUidField.RegisterValueChangedCallback(evt =>
+                {
+                    _skillPresetUid = Mathf.Max(0, evt.newValue);
+                    skillPresetUidField.SetValueWithoutNotify(_skillPresetUid);
+                });
+                _inspectorRoot.Add(skillPresetUidField);
+                _inspectorRoot.Add(new Button(() =>
+                {
+                    if (_skillPresetUid <= 0)
+                    {
+                        UpdateStatus("Monster Skill UID must be greater than 0.");
+                        return;
+                    }
+
+                    BtUndoUtility.RecordComplete(_asset, "Create Skill Combat BT Preset");
+                    if (!MonsterBtPresetBuilder.BuildSkillExample(_asset, _skillPresetUid))
+                    {
+                        UpdateStatus("Skill combat preset creation failed.");
+                        return;
+                    }
+
+                    NotifyTreeChanged($"Skill combat preset created. skillUid={_skillPresetUid}", selectNodeId: _asset.rootNodeId);
+                }) { text = "Create Skill CastRange BT" });
 
                 _inspectorRoot.Add(new VisualElement { style = { height = 12 } });
                 _inspectorRoot.Add(BuildNodeInspectorDebugSummary(null));

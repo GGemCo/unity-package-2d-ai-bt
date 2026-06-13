@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace GGemCo2DAiBt
@@ -17,6 +17,11 @@ namespace GGemCo2DAiBt
         /// 직전 틱에 MoveToTarget이 공격 범위 진입 상태였는지 기록한다.
         /// </summary>
         public bool MoveInAttackRangeLastTick;
+
+        /// <summary>
+        /// 직전 틱에 선호 전투 거리 또는 스킬 사거리 진입 상태였는지 기록합니다.
+        /// </summary>
+        public bool MoveInDesiredRangeLastTick;
     }
 
     internal sealed class BtRuntimeState
@@ -90,6 +95,7 @@ namespace GGemCo2DAiBt
                     SkillStarted = false,
                     RunningSkillUid = 0,
                     MoveInAttackRangeLastTick = false,
+                    MoveInDesiredRangeLastTick = false,
                 };
                 NodeStates[executionKey] = st;
             }

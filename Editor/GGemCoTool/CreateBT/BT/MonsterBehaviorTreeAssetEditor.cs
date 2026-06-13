@@ -18,6 +18,7 @@ namespace GGemCo2DAiBtEditor
     {
         private const float Space = 4f;
         private const float ButtonHeight = 24f;
+        private int _skillPresetUid;
 
         /// <summary>
         /// MonsterBehaviorTreeAsset 인스펙터 UI를 렌더링하고
@@ -44,7 +45,7 @@ namespace GGemCo2DAiBtEditor
         /// 인스펙터 하단의 액션 버튼 영역을 렌더링한다.
         /// </summary>
         /// <param name="asset">현재 선택된 BT 에셋</param>
-        private static void DrawActionButtons(MonsterBehaviorTreeAsset asset)
+        private void DrawActionButtons(MonsterBehaviorTreeAsset asset)
         {
             if (asset == null)
             {
@@ -63,10 +64,17 @@ namespace GGemCo2DAiBtEditor
                     ValidateTree(asset);
                 }
 
-                if (GUILayout.Button("Create Example BT", GUILayout.Height(ButtonHeight)))
+                if (GUILayout.Button("Create Melee BT", GUILayout.Height(ButtonHeight)))
                 {
                     CreateExampleTree(asset);
                 }
+            }
+
+            EditorGUILayout.Space(Space);
+            _skillPresetUid = Mathf.Max(0, EditorGUILayout.IntField("Monster Skill UID", _skillPresetUid));
+            if (GUILayout.Button("Create Skill CastRange BT", GUILayout.Height(ButtonHeight)))
+            {
+                CreateSkillExampleTree(asset, _skillPresetUid);
             }
         }
 
@@ -117,6 +125,32 @@ namespace GGemCo2DAiBtEditor
 
             Undo.RecordObject(asset, "Create Example BT");
             MonsterBtPresetBuilder.BuildMeleeExample(asset);
+            EditorUtility.SetDirty(asset);
+        }
+
+        /// <summary>
+        /// 지정한 몬스터 스킬 UID로 CastRange 기반 스킬 전투 예시 트리를 생성합니다.
+        /// </summary>
+        /// <param name="asset">예시 트리를 생성할 BT 에셋입니다.</param>
+        /// <param name="skillUid">사용할 monster skill UID입니다.</param>
+        private static void CreateSkillExampleTree(MonsterBehaviorTreeAsset asset, int skillUid)
+        {
+            if (asset == null)
+                return;
+
+            if (skillUid <= 0)
+            {
+                Debug.LogWarning("[BT] Monster Skill UID must be greater than 0.", asset);
+                return;
+            }
+
+            Undo.RecordObject(asset, "Create Skill CastRange BT");
+            if (!MonsterBtPresetBuilder.BuildSkillExample(asset, skillUid))
+            {
+                Debug.LogWarning($"[BT] Failed to create skill combat preset. skillUid={skillUid}", asset);
+                return;
+            }
+
             EditorUtility.SetDirty(asset);
         }
 

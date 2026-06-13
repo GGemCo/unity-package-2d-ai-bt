@@ -18,6 +18,23 @@ namespace GGemCo2DAiBt
     [DisallowMultipleComponent]
     public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle, IMonsterBrainRuntimeResettable, IMonsterLeashLifecycle, IGameInitializable, IGameActivatable, IGameDeinitializable
     {
+        /// <summary>
+        /// 현재 타겟과 선호 전투 거리의 상대 관계입니다.
+        /// </summary>
+        private enum PreferredRangeRelation
+        {
+            /// <summary>거리 관계를 계산하지 못했습니다.</summary>
+            Unknown = 0,
+
+            /// <summary>타겟이 선호 최소 거리보다 가깝습니다.</summary>
+            TooClose = 1,
+
+            /// <summary>타겟이 선호 거리 구간 안에 있습니다.</summary>
+            InRange = 2,
+
+            /// <summary>타겟이 선호 최대 거리보다 멉니다.</summary>
+            TooFar = 3,
+        }
         private MonsterBehaviorTreeAsset _treeAsset;
 
         // 0 이면 Update 프레임마다 평가한다. 0보다 크면 해당 Hz로 평가한다.
@@ -908,16 +925,20 @@ namespace GGemCo2DAiBt
         #endregion
 
         #region Condition
+        /// <summary>
+        /// 조건 노드를 평가하고 Threat, 전투 거리, 스킬 사거리 및 Leash 결과를 디버그 정보와 함께 반환합니다.
+        /// </summary>
         private BtStatus ExecuteCondition(BtNodeRecord node, BtContext ctx, string executionKey)
         {
             bool ok;
 
             switch (node.typeId)
             {
+                case BtTypeIds.Condition.HasCombatTarget:
                 case BtTypeIds.Condition.HasAggroTarget:
                 {
-                    ok = ctx.HasAggroTarget();
-                    AddMetric(node.id, executionKey, "HasAggroTarget", ok ? 1f : 0f);
+                    ok = ctx.HasCombatTarget();
+                    AddMetric(node.id, executionKey, "HasCombatTarget", ok ? 1f : 0f);
                     if (ctx.Driver is IMonsterThreatProvider threatProvider)
                     {
                         AddMetric(node.id, executionKey, "ThreatTargetCount", threatProvider.ThreatTargetCount);
@@ -927,7 +948,10 @@ namespace GGemCo2DAiBt
                         }
                     }
 
-                    AddEvent(node.id, executionKey, BtDebugEventKind.Condition, "HasAggroTarget", ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.NoTarget, $"HasAggroTarget => {ok}");
+                    string conditionTitle = node.typeId == BtTypeIds.Condition.HasAggroTarget
+                        ? "HasAggroTarget(Legacy)"
+                        : "HasCombatTarget";
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Condition, conditionTitle, ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.NoTarget, $"HasCombatTarget => {ok}");
                     break;
                 }
 
@@ -936,6 +960,102 @@ namespace GGemCo2DAiBt
                     ok = ctx.Driver.IsTargetInAttackRange();
                     AddMetric(node.id, executionKey, "InAttackRange", ok ? 1f : 0f);
                     AddEvent(node.id, executionKey, BtDebugEventKind.Condition, "InAttackRange", ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.OutOfRange, $"InAttackRange => {ok}");
+                    break;
+                }
+
+                case BtTypeIds.Condition.IsTargetInPreferredRange:
+                case BtTypeIds.Condition.IsTargetTooClose:
+                case BtTypeIds.Condition.IsTargetTooFar:
+                {
+                    bool hasRelation = ctx.TryGetPreferredRangeRelation(
+                        out PreferredRangeRelation relation,
+                        out float horizontalDistance,
+                        out float verticalDistance,
+                        out MonsterCombatRangeProfile profile);
+
+                    ok = hasRelation && (node.typeId switch
+                    {
+                        BtTypeIds.Condition.IsTargetInPreferredRange => relation == PreferredRangeRelation.InRange,
+                        BtTypeIds.Condition.IsTargetTooClose => relation == PreferredRangeRelation.TooClose,
+                        BtTypeIds.Condition.IsTargetTooFar => relation == PreferredRangeRelation.TooFar,
+                        _ => false,
+                    });
+
+                    string title = node.typeId switch
+                    {
+                        BtTypeIds.Condition.IsTargetInPreferredRange => "IsTargetInPreferredRange",
+                        BtTypeIds.Condition.IsTargetTooClose => "IsTargetTooClose",
+                        BtTypeIds.Condition.IsTargetTooFar => "IsTargetTooFar",
+                        _ => "PreferredRange",
+                    };
+                    BtDebugReason reason = !hasRelation
+                        ? BtDebugReason.NoTarget
+                        : relation switch
+                        {
+                            PreferredRangeRelation.TooClose => BtDebugReason.TargetTooClose,
+                            PreferredRangeRelation.TooFar => BtDebugReason.TargetTooFar,
+                            _ => BtDebugReason.None,
+                        };
+
+                    AddMetric(node.id, executionKey, "HorizontalDistance", horizontalDistance);
+                    AddMetric(node.id, executionKey, "VerticalDistance", verticalDistance);
+                    AddMetric(node.id, executionKey, "PreferredRangeMin", profile.PreferredRangeMin);
+                    AddMetric(node.id, executionKey, "PreferredRangeMax", profile.PreferredRangeMax);
+                    AddMetric(node.id, executionKey, "RangeRelation", (float)relation, relation.ToString());
+                    AddMetric(node.id, executionKey, "Result", ok ? 1f : 0f);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Condition,
+                        title,
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok ? BtDebugReason.None : reason,
+                        hasRelation
+                            ? $"relation={relation}, horizontal={horizontalDistance:0.###}, vertical={verticalDistance:0.###}, preferred={profile.PreferredRangeMin:0.###}~{profile.PreferredRangeMax:0.###}"
+                            : "target or combat range provider missing");
+                    break;
+                }
+
+                case BtTypeIds.Condition.IsOutsideSoftLeash:
+                case BtTypeIds.Condition.IsOutsideHardLeash:
+                {
+                    bool hardLimit = node.typeId == BtTypeIds.Condition.IsOutsideHardLeash;
+                    bool configured = ctx.TryEvaluateOutsideLeash(
+                        hardLimit,
+                        out bool outside,
+                        out float evaluatedDistance,
+                        out float limit);
+                    ok = configured && outside;
+
+                    string title = hardLimit ? "IsOutsideHardLeash" : "IsOutsideSoftLeash";
+                    AddMetric(node.id, executionKey, "LeashDistance", evaluatedDistance);
+                    AddMetric(node.id, executionKey, "LeashLimit", limit);
+                    AddMetric(node.id, executionKey, "Result", ok ? 1f : 0f);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Condition,
+                        title,
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok ? BtDebugReason.None : (configured ? BtDebugReason.OutOfRange : BtDebugReason.LeashNotConfigured),
+                        configured
+                            ? $"distance={evaluatedDistance:0.###}, limit={limit:0.###}, outside={outside}"
+                            : "leash provider or range is not configured");
+                    break;
+                }
+
+                case BtTypeIds.Condition.IsReturningHome:
+                {
+                    ok = ctx.Driver is IMonsterLeashProvider leashProvider && leashProvider.IsReturningHome;
+                    AddMetric(node.id, executionKey, "IsReturningHome", ok ? 1f : 0f);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Condition,
+                        "IsReturningHome",
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok ? BtDebugReason.None : BtDebugReason.None,
+                        $"IsReturningHome => {ok}");
                     break;
                 }
 
@@ -1158,6 +1278,18 @@ namespace GGemCo2DAiBt
             return ok ? BtStatus.Success : BtStatus.Failure;
         }
 
+        /// <summary>
+        /// 몬스터 스킬 정의의 TargetingMode와 CastRange를 기준으로 현재 타겟의 사용 가능 거리를 검사합니다.
+        /// </summary>
+        /// <param name="ctx">현재 BT 실행 컨텍스트입니다.</param>
+        /// <param name="skillUid">검사할 몬스터 스킬 UID입니다.</param>
+        /// <param name="requireTarget">타겟이 반드시 필요하면 <see langword="true"/>입니다.</param>
+        /// <param name="extraMargin">CastRange에 더할 허용 거리입니다.</param>
+        /// <param name="distance">타겟팅 정책에 따라 계산된 수평 또는 2D 거리입니다.</param>
+        /// <param name="castRange">추가 허용 거리가 반영된 최종 CastRange입니다.</param>
+        /// <param name="failReason">검사 실패 시 디버그 사유입니다.</param>
+        /// <param name="detail">검사 결과의 디버그 상세 내용입니다.</param>
+        /// <returns>현재 위치에서 스킬 사용 거리를 만족하면 <see langword="true"/>입니다.</returns>
         private bool TryIsSkillInCastRange(
             BtContext ctx,
             int skillUid,
@@ -1226,7 +1358,9 @@ namespace GGemCo2DAiBt
                 case ConfigCommonSkill.SkillTargetingMode.LockOnGuaranteedHit:
                 case ConfigCommonSkill.SkillTargetingMode.TargetCenteredArea:
                 case ConfigCommonSkill.SkillTargetingMode.FollowTargetArea:
-                    distance = Vector2.Distance(new Vector2(origin.x, origin.y), new Vector2(targetPoint.x, targetPoint.y));
+                    distance = SkillRangeResolver.UsesHorizontalCastRange(targetingMode)
+                        ? Mathf.Abs(targetPoint.x - origin.x)
+                        : Vector2.Distance(new Vector2(origin.x, origin.y), new Vector2(targetPoint.x, targetPoint.y));
                     break;
 
                 default:
@@ -1234,7 +1368,8 @@ namespace GGemCo2DAiBt
                     return true;
             }
 
-            bool inRange = distance <= castRange;
+            // Skill 패키지의 공식 CastRange 정책과 같은 수평/2D 거리 기준을 사용합니다.
+            bool inRange = SkillRangeResolver.IsWithinCastRange(targetingMode, origin, targetPoint, castRange);
             if (!inRange)
                 failReason = BtDebugReason.OutOfRange;
 
@@ -1244,10 +1379,31 @@ namespace GGemCo2DAiBt
         #endregion
 
         #region Action
+        /// <summary>
+        /// 액션 노드를 실행하고 타겟 선택, 거리 이동, 스킬 실행 및 Leash 요청 결과를 반환합니다.
+        /// </summary>
         private BtStatus ExecuteAction(BtNodeRecord node, BtContext ctx, string executionKey)
         {
             switch (node.typeId)
             {
+                case BtTypeIds.Action.SelectCombatTarget:
+                {
+                    bool selected = ctx.TrySelectCombatTarget(out int targetCount, out float currentThreat);
+                    AddMetric(node.id, executionKey, "ThreatTargetCount", targetCount);
+                    AddMetric(node.id, executionKey, "CurrentTargetThreat", currentThreat);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Action,
+                        "SelectCombatTarget",
+                        selected ? BtStatus.Success : BtStatus.Failure,
+                        selected ? BtDebugReason.None : BtDebugReason.CombatTargetSelectionFailed,
+                        selected
+                            ? $"selected target. threatTargets={targetCount}, currentThreat={currentThreat:0.###}"
+                            : $"no valid threat target. threatTargets={targetCount}");
+                    return selected ? BtStatus.Success : BtStatus.Failure;
+                }
+
                 case BtTypeIds.Action.Wait:
                 {
                     float sec = ctx.GetFloatParam(node, "sec", 0.2f);
@@ -1277,6 +1433,20 @@ namespace GGemCo2DAiBt
                     return st;
                 }
 
+                case BtTypeIds.Action.MoveToPreferredRange:
+                {
+                    var st = ctx.MoveToPreferredRange(node, executionKey, out var failReason, out var detail);
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "MoveToPreferredRange", st, failReason, detail);
+                    return st;
+                }
+
+                case BtTypeIds.Action.MoveToSkillRange:
+                {
+                    var st = ctx.MoveToSkillRange(node, executionKey, out var failReason, out var detail);
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "MoveToSkillRange", st, failReason, detail);
+                    return st;
+                }
+
                 case BtTypeIds.Action.AttackBasic:
                     ctx.Driver.RequestAttackOnce();
                     AddEvent(node.id, executionKey, BtDebugEventKind.Action, "AttackBasic", BtStatus.Success, BtDebugReason.None, "RequestAttackOnce()");
@@ -1289,7 +1459,44 @@ namespace GGemCo2DAiBt
                     AddEvent(node.id, executionKey, BtDebugEventKind.Action, "RequestRestartRoot", BtStatus.Success, BtDebugReason.RootRestartRequested, $"reason={reason}");
                     return BtStatus.Success;
                 }
-                
+
+                case BtTypeIds.Action.BeginEvade:
+                {
+                    string triggerText = ctx.GetEnumStringParam(node, "trigger", nameof(MonsterLeashTrigger.Manual));
+                    if (!Enum.TryParse(triggerText, true, out MonsterLeashTrigger trigger))
+                        trigger = MonsterLeashTrigger.Manual;
+
+                    if (ctx.Driver is not IMonsterLeashProvider leashProvider)
+                    {
+                        AddEvent(node.id, executionKey, BtDebugEventKind.Action, "BeginEvade", BtStatus.Failure, BtDebugReason.LeashNotConfigured, "leash provider missing");
+                        return BtStatus.Failure;
+                    }
+
+                    bool started = leashProvider.IsReturningHome || leashProvider.RequestBeginEvade(trigger);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Action,
+                        "BeginEvade",
+                        started ? BtStatus.Success : BtStatus.Failure,
+                        started ? BtDebugReason.LeashReturnStarted : BtDebugReason.LeashRequestRejected,
+                        started
+                            ? $"leash return requested. trigger={trigger}, state={leashProvider.LeashState}"
+                            : $"leash return request rejected. trigger={trigger}, state={leashProvider.LeashState}");
+                    return started ? BtStatus.Success : BtStatus.Failure;
+                }
+
+                case BtTypeIds.Action.ReleaseCombatTarget:
+                case BtTypeIds.Action.ClearAggro:
+                {
+                    ctx.Driver.RequestClearAggro();
+                    string title = node.typeId == BtTypeIds.Action.ClearAggro
+                        ? "ClearAggro(Legacy)"
+                        : "ReleaseCombatTarget";
+                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, title, BtStatus.Success, BtDebugReason.None, "Threat and current combat target released");
+                    return BtStatus.Success;
+                }
+
                 case BtTypeIds.Action.UseSkillAndWait:
                 {
                     if (ctx.SkillDriver is not IMonsterSkillDriverFeedback feedback)
@@ -1301,6 +1508,8 @@ namespace GGemCo2DAiBt
                     int skillUid = ctx.GetIntParam(node, "skillUid", fallback: 0);
                     bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
                     bool restartRoot = ctx.GetBoolParam(node, "restartRoot", fallback: false);
+                    bool validateCastRange = ctx.GetBoolParam(node, "validateCastRange", fallback: false);
+                    float castRangeMargin = ctx.GetFloatParam(node, "castRangeMargin", fallback: 0f);
 
                     if (skillUid <= 0)
                     {
@@ -1322,6 +1531,20 @@ namespace GGemCo2DAiBt
                         if (requireTarget && !hasTarget)
                         {
                             AddEvent(node.id, executionKey, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, BtDebugReason.NoTarget, $"skillUid={skillUid}, requireTarget=true");
+                            return BtStatus.Failure;
+                        }
+
+                        if (validateCastRange && !TryIsSkillInCastRange(
+                                ctx,
+                                skillUid,
+                                requireTarget,
+                                castRangeMargin,
+                                out _,
+                                out _,
+                                out BtDebugReason castRangeReason,
+                                out string castRangeDetail))
+                        {
+                            AddEvent(node.id, executionKey, BtDebugEventKind.Action, "UseSkillAndWait", BtStatus.Failure, castRangeReason, $"cast range validation failed. {castRangeDetail}");
                             return BtStatus.Failure;
                         }
 
@@ -1396,6 +1619,8 @@ namespace GGemCo2DAiBt
 
                     bool requireTarget = ctx.GetBoolParam(node, "requireTarget", fallback: true);
                     string busyReturn = ctx.GetEnumStringParam(node, "busyReturn", fallback: "Running"); // Running / Success
+                    bool validateCastRange = ctx.GetBoolParam(node, "validateCastRange", fallback: false);
+                    float castRangeMargin = ctx.GetFloatParam(node, "castRangeMargin", fallback: 0f);
 
                     if (ctx.SkillDriver.IsSkillBusy)
                     {
@@ -1408,6 +1633,20 @@ namespace GGemCo2DAiBt
                     if (requireTarget && !hasTarget)
                     {
                         AddEvent(node.id, executionKey, BtDebugEventKind.Action, "UseSkill", BtStatus.Failure, BtDebugReason.NoTarget, $"skillUid={skillUid}, requireTarget=true");
+                        return BtStatus.Failure;
+                    }
+
+                    if (validateCastRange && !TryIsSkillInCastRange(
+                            ctx,
+                            skillUid,
+                            requireTarget,
+                            castRangeMargin,
+                            out _,
+                            out _,
+                            out BtDebugReason castRangeReason,
+                            out string castRangeDetail))
+                    {
+                        AddEvent(node.id, executionKey, BtDebugEventKind.Action, "UseSkill", BtStatus.Failure, castRangeReason, $"cast range validation failed. {castRangeDetail}");
                         return BtStatus.Failure;
                     }
 
@@ -1428,10 +1667,6 @@ namespace GGemCo2DAiBt
                     return BtStatus.Failure;
                 }
 
-                case BtTypeIds.Action.ClearAggro:
-                    ctx.Driver.RequestClearAggro();
-                    AddEvent(node.id, executionKey, BtDebugEventKind.Action, "ClearAggro", BtStatus.Success, BtDebugReason.None, "RequestClearAggro()");
-                    return BtStatus.Success;
                 case BtTypeIds.Action.ResetSkillUseCount:
                 {
                     if (ctx.Blackboard == null)
@@ -1528,7 +1763,7 @@ namespace GGemCo2DAiBt
             public readonly BtRuntimeState Runtime;
             public readonly bool DebugLog;
             public readonly IMonsterSkillDriver SkillDriver;
-            
+
             public BtContext(MonoBehaviour owner, IMonsterCombatDriver driver, IMonsterSkillDriver skillDriver,
                 RuntimeBlackboard blackboard, BtRuntimeState runtime, bool debugLog)
             {
@@ -1544,16 +1779,112 @@ namespace GGemCo2DAiBt
             /// Threat 목록을 정리한 뒤 현재 사용할 수 있는 전투 타겟이 존재하는지 확인합니다.
             /// </summary>
             /// <returns>유효한 현재 타겟이 있으면 <see langword="true"/>입니다.</returns>
-            public bool HasAggroTarget()
+            public bool HasCombatTarget()
             {
-                if (Driver.IsDead) return false;
+                return TrySelectCombatTarget(out _, out _);
+            }
+
+            /// <summary>
+            /// Threat 목록을 다시 평가하여 현재 전투 타겟을 선택합니다.
+            /// </summary>
+            /// <param name="targetCount">평가 시점의 유효 Threat 대상 수입니다.</param>
+            /// <param name="currentThreat">선택된 현재 타겟의 총 Threat입니다.</param>
+            /// <returns>유효한 전투 타겟을 선택했으면 <see langword="true"/>입니다.</returns>
+            public bool TrySelectCombatTarget(out int targetCount, out float currentThreat)
+            {
+                targetCount = 0;
+                currentThreat = 0f;
+                if (Driver.IsDead)
+                    return false;
+
                 if (Driver is IMonsterThreatProvider threatProvider)
                 {
-                    threatProvider.RefreshCombatTarget();
+                    bool selected = threatProvider.RefreshCombatTarget();
+                    targetCount = threatProvider.ThreatTargetCount;
+                    if (selected)
+                        threatProvider.TryGetCurrentTargetThreat(out currentThreat);
+
+                    return selected && Driver.TryGetTarget(out Transform selectedTarget) && selectedTarget != null;
                 }
 
-                if (!Driver.IsAggro) return false;
-                return Driver.TryGetTarget(out _);
+                return Driver.IsAggro && Driver.TryGetTarget(out Transform legacyTarget) && legacyTarget != null;
+            }
+
+            /// <summary>
+            /// 현재 타겟이 선호 전투 거리 구간과 어떤 관계인지 계산합니다.
+            /// </summary>
+            /// <param name="relation">계산된 선호 거리 관계입니다.</param>
+            /// <param name="horizontalDistance">타겟 HitArea 가장자리까지의 X축 거리입니다.</param>
+            /// <param name="verticalDistance">타겟 HitArea 가장자리까지의 Y축 거리입니다.</param>
+            /// <param name="profile">현재 몬스터 전투 범위 프로필입니다.</param>
+            /// <returns>타겟과 전투 범위 프로필을 모두 조회했으면 <see langword="true"/>입니다.</returns>
+            public bool TryGetPreferredRangeRelation(
+                out PreferredRangeRelation relation,
+                out float horizontalDistance,
+                out float verticalDistance,
+                out MonsterCombatRangeProfile profile)
+            {
+                relation = PreferredRangeRelation.Unknown;
+                horizontalDistance = -1f;
+                verticalDistance = -1f;
+                profile = default;
+
+                if (Driver is not IMonsterCombatRangeProvider rangeProvider ||
+                    !rangeProvider.TryGetTargetDistances(
+                        out horizontalDistance,
+                        out verticalDistance,
+                        out _))
+                {
+                    return false;
+                }
+
+                profile = rangeProvider.CombatRangeProfile;
+                if (profile.IsWithinPreferredRange(horizontalDistance, verticalDistance))
+                {
+                    relation = PreferredRangeRelation.InRange;
+                    return true;
+                }
+
+                bool verticallyReachable = verticalDistance >= 0f && verticalDistance <= profile.BasicAttackRangeY;
+                relation = verticallyReachable && horizontalDistance < profile.PreferredRangeMin
+                    ? PreferredRangeRelation.TooClose
+                    : PreferredRangeRelation.TooFar;
+                return true;
+            }
+
+            /// <summary>
+            /// 몬스터 또는 현재 타겟이 홈 기준 Leash 범위를 벗어났는지 평가합니다.
+            /// </summary>
+            /// <param name="hardLimit">Hard Leash를 검사하면 <see langword="true"/>, Soft Leash를 검사하면 <see langword="false"/>입니다.</param>
+            /// <param name="outside">활성화된 범위를 벗어났는지 여부입니다.</param>
+            /// <param name="evaluatedDistance">몬스터와 타겟의 홈 거리 중 큰 값입니다.</param>
+            /// <param name="limit">검사한 Leash 제한 거리입니다.</param>
+            /// <returns>필요한 Provider와 Leash 범위가 설정되어 있으면 <see langword="true"/>입니다.</returns>
+            public bool TryEvaluateOutsideLeash(
+                bool hardLimit,
+                out bool outside,
+                out float evaluatedDistance,
+                out float limit)
+            {
+                outside = false;
+                evaluatedDistance = 0f;
+                limit = 0f;
+                if (Driver is not IMonsterLeashProvider leashProvider ||
+                    Driver is not IMonsterCombatRangeProvider rangeProvider)
+                {
+                    return false;
+                }
+
+                MonsterCombatRangeProfile profile = rangeProvider.CombatRangeProfile;
+                limit = hardLimit ? profile.HardLeashRange : profile.SoftLeashRange;
+                if (limit <= 0f)
+                    return false;
+
+                evaluatedDistance = Mathf.Max(
+                    Mathf.Max(0f, leashProvider.DistanceFromHome),
+                    Mathf.Max(0f, leashProvider.TargetDistanceFromHome));
+                outside = evaluatedDistance > limit;
+                return true;
             }
 
             public bool IsTargetWithinDistance(float max)
@@ -1679,6 +2010,335 @@ namespace GGemCo2DAiBt
                 failureReason = ConvertMoveFailureToDebugReason(moveFailure);
                 detail = $"move rejected. reason={moveFailure}, distance={distance:0.###}, dir=({dir.x:0.###},{dir.y:0.###}), target={target.name}. move intent cleared";
                 return BtStatus.Failure;
+            }
+
+            /// <summary>
+            /// 몬스터의 선호 전투 거리까지 접근하거나 후퇴합니다.
+            /// </summary>
+            /// <param name="node">현재 MoveToPreferredRange 노드 레코드입니다.</param>
+            /// <param name="executionKey">현재 실행 키입니다.</param>
+            /// <param name="failureReason">액션 실패 또는 관측 사유입니다.</param>
+            /// <param name="detail">디버그 상세 메시지입니다.</param>
+            /// <returns>이동 중이면 Running, 선호 거리에 도달하면 Success, 실행할 수 없으면 Failure입니다.</returns>
+            public BtStatus MoveToPreferredRange(
+                BtNodeRecord node,
+                string executionKey,
+                out BtDebugReason failureReason,
+                out string detail)
+            {
+                failureReason = BtDebugReason.None;
+                detail = "preferred range move pending";
+                BtNodeState nodeState = Runtime.GetOrCreateNodeState(executionKey, node.id);
+
+                if (SkillDriver != null && SkillDriver.IsSkillBusy)
+                {
+                    Driver.RequestStopMoveIntent();
+                    nodeState.MoveInDesiredRangeLastTick = false;
+                    failureReason = BtDebugReason.SkillBusy;
+                    detail = "skill busy. preferred range move intent cleared";
+                    return BtStatus.Failure;
+                }
+
+                if (!Driver.TryGetTarget(out Transform target) || target == null)
+                {
+                    Driver.RequestStopMoveIntent();
+                    nodeState.MoveInDesiredRangeLastTick = false;
+                    failureReason = BtDebugReason.NoTarget;
+                    detail = "target missing. preferred range move intent cleared";
+                    return BtStatus.Failure;
+                }
+
+                if (!TryGetPreferredRangeRelation(
+                        out PreferredRangeRelation relation,
+                        out float horizontalDistance,
+                        out float verticalDistance,
+                        out MonsterCombatRangeProfile profile))
+                {
+                    // 커스텀 레거시 Driver는 범위 Provider를 구현하지 않을 수 있으므로 기존 접근 이동으로 대체합니다.
+                    return MoveToTarget(node, executionKey, out failureReason, out detail);
+                }
+
+                bool clampToAttackRange = GetBoolParam(node, "clampToAttackRange", fallback: false);
+                relation = ResolvePreferredMoveRelation(
+                    relation,
+                    horizontalDistance,
+                    verticalDistance,
+                    profile,
+                    clampToAttackRange,
+                    out float effectiveMinRange,
+                    out float effectiveMaxRange);
+
+                bool stopInRange = GetBoolParam(node, "stopInRange", fallback: true);
+                bool restartRootInRange = GetBoolParam(node, "restartRootInRange", fallback: true);
+                if (relation == PreferredRangeRelation.InRange)
+                {
+                    return CompleteDesiredRange(
+                        node,
+                        executionKey,
+                        nodeState,
+                        stopInRange,
+                        restartRootInRange,
+                        $"preferred range reached. horizontal={horizontalDistance:0.###}, vertical={verticalDistance:0.###}, effective={effectiveMinRange:0.###}~{effectiveMaxRange:0.###}, clampToAttackRange={clampToAttackRange}",
+                        out failureReason,
+                        out detail);
+                }
+
+                nodeState.MoveInDesiredRangeLastTick = false;
+                bool allowRetreat = GetBoolParam(node, "allowRetreat", fallback: true);
+                if (relation == PreferredRangeRelation.TooClose && !allowRetreat)
+                {
+                    Driver.RequestStopMoveIntent();
+                    failureReason = BtDebugReason.TargetTooClose;
+                    detail = $"target is too close but retreat is disabled. horizontal={horizontalDistance:0.###}, effectiveMin={effectiveMinRange:0.###}";
+                    return BtStatus.Failure;
+                }
+
+                Vector3 ownerPosition = Owner.transform.position;
+                Vector3 targetPosition = target.position;
+                float chaseDistance = Vector2.Distance(
+                    new Vector2(ownerPosition.x, ownerPosition.y),
+                    new Vector2(targetPosition.x, targetPosition.y));
+                float giveUpDistance = ResolveMoveGiveUpDistance(node);
+                if (giveUpDistance > 0f && chaseDistance > giveUpDistance)
+                {
+                    Driver.RequestStopMoveIntent();
+                    bool startedLeash = TryBeginLeashEvadeWhenBeyondChase();
+                    failureReason = BtDebugReason.OutOfRange;
+                    detail = startedLeash
+                        ? $"preferred range target too far. leash evade started. chaseDistance={chaseDistance:0.###}, giveUpDistance={giveUpDistance:0.###}"
+                        : $"preferred range target too far. chaseDistance={chaseDistance:0.###}, giveUpDistance={giveUpDistance:0.###}";
+                    return BtStatus.Failure;
+                }
+
+                Vector3 raw = relation == PreferredRangeRelation.TooClose
+                    ? Owner.transform.position - target.position
+                    : target.position - Owner.transform.position;
+                Vector2 direction = ResolveNonZeroDirection(raw, relation == PreferredRangeRelation.TooClose);
+                if (Driver.TryRequestMove(direction, out MonsterMoveRequestFailureReason moveFailure))
+                {
+                    detail = $"status=Running, relation={relation}, horizontal={horizontalDistance:0.###}, vertical={verticalDistance:0.###}, dir=({direction.x:0.###},{direction.y:0.###}), target={target.name}";
+                    return BtStatus.Running;
+                }
+
+                Driver.RequestStopMoveIntent();
+                failureReason = ConvertMoveFailureToDebugReason(moveFailure);
+                detail = $"preferred range move rejected. relation={relation}, reason={moveFailure}, dir=({direction.x:0.###},{direction.y:0.###}), target={target.name}";
+                return BtStatus.Failure;
+            }
+
+            /// <summary>
+            /// 지정한 몬스터 스킬의 CastRange 안까지 타겟을 추적합니다.
+            /// </summary>
+            /// <param name="node">현재 MoveToSkillRange 노드 레코드입니다.</param>
+            /// <param name="executionKey">현재 실행 키입니다.</param>
+            /// <param name="failureReason">액션 실패 또는 관측 사유입니다.</param>
+            /// <param name="detail">디버그 상세 메시지입니다.</param>
+            /// <returns>이동 중이면 Running, 사거리에 도달하면 Success, 실행할 수 없으면 Failure입니다.</returns>
+            public BtStatus MoveToSkillRange(
+                BtNodeRecord node,
+                string executionKey,
+                out BtDebugReason failureReason,
+                out string detail)
+            {
+                failureReason = BtDebugReason.None;
+                detail = "skill range move pending";
+                BtNodeState nodeState = Runtime.GetOrCreateNodeState(executionKey, node.id);
+
+                int skillUid = GetIntParam(node, "skillUid", fallback: 0);
+                if (skillUid <= 0 ||
+                    !SkillDefinitionResolver.TryResolve(skillUid, ConfigCommon.SkillTableSource.Monster, out RuntimeSkillDefinition skill) ||
+                    skill == null)
+                {
+                    Driver.RequestStopMoveIntent();
+                    nodeState.MoveInDesiredRangeLastTick = false;
+                    failureReason = BtDebugReason.SkillUidInvalid;
+                    detail = $"monster skill not found. skillUid={skillUid}";
+                    return BtStatus.Failure;
+                }
+
+                if (SkillDriver != null && SkillDriver.IsSkillBusy)
+                {
+                    Driver.RequestStopMoveIntent();
+                    nodeState.MoveInDesiredRangeLastTick = false;
+                    failureReason = BtDebugReason.SkillBusy;
+                    detail = $"skill busy. skillUid={skillUid}, move intent cleared";
+                    return BtStatus.Failure;
+                }
+
+                float margin = GetFloatParam(node, "extraMargin", fallback: 0f);
+                float resolvedCastRange = SkillRangeResolver.GetCastRange(skill);
+                float castRange = Mathf.Max(0f, resolvedCastRange + margin);
+                ConfigCommonSkill.SkillTargetingMode targetingMode =
+                    (ConfigCommonSkill.SkillTargetingMode)Mathf.Clamp((int)skill.TargetingMode, 0, int.MaxValue);
+
+                bool requiresDistance = targetingMode == ConfigCommonSkill.SkillTargetingMode.GroundTarget ||
+                                        targetingMode == ConfigCommonSkill.SkillTargetingMode.LockOnGuaranteedHit ||
+                                        targetingMode == ConfigCommonSkill.SkillTargetingMode.TargetCenteredArea ||
+                                        targetingMode == ConfigCommonSkill.SkillTargetingMode.FollowTargetArea;
+                if (resolvedCastRange <= 0f || targetingMode == ConfigCommonSkill.SkillTargetingMode.Self || !requiresDistance)
+                {
+                    return CompleteDesiredRange(
+                        node,
+                        executionKey,
+                        nodeState,
+                        GetBoolParam(node, "stopInRange", fallback: true),
+                        GetBoolParam(node, "restartRootInRange", fallback: true),
+                        $"skill does not require range movement. skillUid={skillUid}, mode={targetingMode}, castRange={castRange:0.###}",
+                        out failureReason,
+                        out detail);
+                }
+
+                if (!Driver.TryGetTarget(out Transform target) || target == null)
+                {
+                    Driver.RequestStopMoveIntent();
+                    nodeState.MoveInDesiredRangeLastTick = false;
+                    failureReason = BtDebugReason.NoTarget;
+                    detail = $"target missing. skillUid={skillUid}";
+                    return BtStatus.Failure;
+                }
+
+                Vector3 origin = Owner.transform.position;
+                Vector3 targetPoint = target.position;
+                float distance = SkillRangeResolver.UsesHorizontalCastRange(targetingMode)
+                    ? Mathf.Abs(targetPoint.x - origin.x)
+                    : Vector2.Distance(new Vector2(origin.x, origin.y), new Vector2(targetPoint.x, targetPoint.y));
+                if (SkillRangeResolver.IsWithinCastRange(targetingMode, origin, targetPoint, castRange))
+                {
+                    return CompleteDesiredRange(
+                        node,
+                        executionKey,
+                        nodeState,
+                        GetBoolParam(node, "stopInRange", fallback: true),
+                        GetBoolParam(node, "restartRootInRange", fallback: true),
+                        $"skill cast range reached. skillUid={skillUid}, distance={distance:0.###}, castRange={castRange:0.###}",
+                        out failureReason,
+                        out detail);
+                }
+
+                nodeState.MoveInDesiredRangeLastTick = false;
+                float chaseDistance = Vector2.Distance(
+                    new Vector2(origin.x, origin.y),
+                    new Vector2(targetPoint.x, targetPoint.y));
+                float giveUpDistance = ResolveMoveGiveUpDistance(node);
+                if (giveUpDistance > 0f && chaseDistance > giveUpDistance)
+                {
+                    Driver.RequestStopMoveIntent();
+                    bool startedLeash = TryBeginLeashEvadeWhenBeyondChase();
+                    failureReason = BtDebugReason.OutOfRange;
+                    detail = startedLeash
+                        ? $"skill target too far. leash evade started. skillUid={skillUid}, chaseDistance={chaseDistance:0.###}, giveUpDistance={giveUpDistance:0.###}"
+                        : $"skill target too far. skillUid={skillUid}, chaseDistance={chaseDistance:0.###}, giveUpDistance={giveUpDistance:0.###}";
+                    return BtStatus.Failure;
+                }
+
+                Vector2 direction = ResolveNonZeroDirection(target.position - Owner.transform.position, retreat: false);
+                if (Driver.TryRequestMove(direction, out MonsterMoveRequestFailureReason moveFailure))
+                {
+                    detail = $"status=Running, skillUid={skillUid}, distance={distance:0.###}, castRange={castRange:0.###}, dir=({direction.x:0.###},{direction.y:0.###}), target={target.name}";
+                    return BtStatus.Running;
+                }
+
+                Driver.RequestStopMoveIntent();
+                failureReason = ConvertMoveFailureToDebugReason(moveFailure);
+                detail = $"skill range move rejected. skillUid={skillUid}, reason={moveFailure}, distance={distance:0.###}, target={target.name}";
+                return BtStatus.Failure;
+            }
+
+            /// <summary>
+            /// 선호 거리 이동에서 사용할 유효 최소·최대 거리를 계산합니다.
+            /// </summary>
+            /// <remarks>
+            /// 근접 기본 공격 프리셋은 선호 최대 거리가 공격 시작 범위보다 커도
+            /// 공격 범위 밖에서 정지하지 않도록 두 범위의 교집합을 사용합니다.
+            /// </remarks>
+            private static PreferredRangeRelation ResolvePreferredMoveRelation(
+                PreferredRangeRelation originalRelation,
+                float horizontalDistance,
+                float verticalDistance,
+                MonsterCombatRangeProfile profile,
+                bool clampToAttackRange,
+                out float effectiveMinRange,
+                out float effectiveMaxRange)
+            {
+                effectiveMinRange = Mathf.Max(0f, profile.PreferredRangeMin);
+                effectiveMaxRange = Mathf.Max(effectiveMinRange, profile.PreferredRangeMax);
+                if (!clampToAttackRange)
+                    return originalRelation;
+
+                float attackRangeX = profile.BasicAttackRangeX > 0f
+                    ? profile.BasicAttackRangeX
+                    : effectiveMaxRange;
+                effectiveMaxRange = Mathf.Min(effectiveMaxRange, attackRangeX);
+                effectiveMinRange = Mathf.Min(effectiveMinRange, effectiveMaxRange);
+
+                if (verticalDistance > profile.BasicAttackRangeY || horizontalDistance > effectiveMaxRange)
+                    return PreferredRangeRelation.TooFar;
+
+                return horizontalDistance < effectiveMinRange
+                    ? PreferredRangeRelation.TooClose
+                    : PreferredRangeRelation.InRange;
+            }
+
+            /// <summary>
+            /// 목표 거리 도달 시 이동을 정리하고 필요하면 루트 재평가를 한 번 요청합니다.
+            /// </summary>
+            private BtStatus CompleteDesiredRange(
+                BtNodeRecord node,
+                string executionKey,
+                BtNodeState nodeState,
+                bool stopInRange,
+                bool restartRootInRange,
+                string successDetail,
+                out BtDebugReason failureReason,
+                out string detail)
+            {
+                if (stopInRange)
+                    Driver.RequestWait();
+                else
+                    Driver.RequestStopMoveIntent();
+
+                bool requestedNow = false;
+                if (restartRootInRange && !nodeState.MoveInDesiredRangeLastTick)
+                {
+                    Runtime.RequestRestartRoot(node.id, executionKey, successDetail);
+                    requestedNow = true;
+                }
+
+                nodeState.MoveInDesiredRangeLastTick = true;
+                failureReason = requestedNow ? BtDebugReason.RootRestartRequested : BtDebugReason.DesiredRangeReached;
+                detail = requestedNow
+                    ? $"{successDetail}. restart root requested"
+                    : successDetail;
+                return BtStatus.Success;
+            }
+
+            /// <summary>
+            /// 타겟 방향 벡터가 0에 가까울 때도 접근 또는 후퇴 방향을 안정적으로 반환합니다.
+            /// </summary>
+            private Vector2 ResolveNonZeroDirection(Vector3 raw, bool retreat)
+            {
+                Vector2 direction = new Vector2(raw.x, raw.y);
+                if (direction.sqrMagnitude > 0.000001f)
+                    return direction;
+
+                if (Driver.TryGetTarget(out Transform target) && target != null)
+                {
+                    float sign = target.position.x >= Owner.transform.position.x ? 1f : -1f;
+                    return retreat ? new Vector2(-sign, 0f) : new Vector2(sign, 0f);
+                }
+
+                return retreat ? Vector2.left : Vector2.right;
+            }
+
+            /// <summary>
+            /// 현재 타겟이 프로필 ChaseRange를 벗어났을 때 Core Leash Evade를 시작합니다.
+            /// </summary>
+            private bool TryBeginLeashEvadeWhenBeyondChase()
+            {
+                return Driver is IMonsterCombatRangeProvider rangeProvider &&
+                       rangeProvider.IsTargetBeyondChaseRange() &&
+                       Driver is IMonsterLeashProvider leashProvider &&
+                       leashProvider.RequestBeginEvade(MonsterLeashTrigger.Manual);
             }
 
             /// <summary>

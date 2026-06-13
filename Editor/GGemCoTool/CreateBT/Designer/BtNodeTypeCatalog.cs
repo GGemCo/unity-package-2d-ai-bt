@@ -1,4 +1,4 @@
-﻿#if UNITY_EDITOR
+#if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
 using GGemCo2DAiBt;
@@ -54,8 +54,15 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Decorator, TypeId = "Decorator.Timeout", DisplayName = "Timeout" },
 
             // Condition
-            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HasAggroTarget", DisplayName = "Has Aggro Target" },
-            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.InAttackRange", DisplayName = "In Attack Range" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.HasCombatTarget, DisplayName = "Has Combat Target" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.HasAggroTarget, DisplayName = "Has Aggro Target (Legacy)" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.InAttackRange, DisplayName = "In Attack Range" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsTargetInPreferredRange, DisplayName = "Target In Preferred Range" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsTargetTooClose, DisplayName = "Target Too Close" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsTargetTooFar, DisplayName = "Target Too Far" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsOutsideSoftLeash, DisplayName = "Outside Soft Leash" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsOutsideHardLeash, DisplayName = "Outside Hard Leash" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsReturningHome, DisplayName = "Is Returning Home" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HpPercentBelow", DisplayName = "Hp Percent Below" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.TargetWithinDistance", DisplayName = "Target Within Distance" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
@@ -64,18 +71,23 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.LastSkillResult", DisplayName = "Last Skill Result" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.LastSkillCombatOutcome", DisplayName = "Last Skill Combat Outcome" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HasAffect", DisplayName = "Has Affect" },
-            
+
             // Action
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.SelectCombatTarget, DisplayName = "Select Combat Target" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.WaitOneTick", DisplayName = "Wait One Tick" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.Wait", DisplayName = "Wait" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.Stop", DisplayName = "Stop" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.FaceToTarget", DisplayName = "Face To Target" },
-            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.MoveToTarget", DisplayName = "Move To Target" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.MoveToTarget, DisplayName = "Move To Target (Legacy Approach)" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.MoveToPreferredRange, DisplayName = "Move To Preferred Range" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.MoveToSkillRange, DisplayName = "Move To Skill Range" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.AttackBasic", DisplayName = "Attack Basic" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkill", DisplayName = "Use Skill" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.UseSkillAndWait", DisplayName = "Use Skill And Wait" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.RequestRestartRoot", DisplayName = "Request Restart Root" },
-            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ClearAggro", DisplayName = "Clear Aggro" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.BeginEvade, DisplayName = "Begin Leash Evade" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.ReleaseCombatTarget, DisplayName = "Release Combat Target" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = BtTypeIds.Action.ClearAggro, DisplayName = "Clear Aggro (Legacy)" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Action, TypeId = "Action.ResetSkillUseCount", DisplayName = "Reset Skill Use Count" },
         };
 
@@ -137,7 +149,7 @@ namespace GGemCo2DAiBtEditor
                     new BtParamDef("outcome", BtValueType.EnumString, required: true, defaultValue: "Hit"),
                     new BtParamDef("consume", BtValueType.Bool, required: false, defaultValue: true),
                 },
-                
+
                 // Action
                 ["Action.Wait"] = new List<BtParamDef>
                 {
@@ -150,18 +162,44 @@ namespace GGemCo2DAiBtEditor
                     new BtParamDef("giveUpDistance", BtValueType.Float, required: false, defaultValue: -1f),
                     new BtParamDef("giveUpDistanceKey", BtValueType.String, required: false, defaultValue: "ChaseGiveUpRange"),
                 },
+                [BtTypeIds.Action.MoveToPreferredRange] = new List<BtParamDef>
+                {
+                    new BtParamDef("allowRetreat", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("clampToAttackRange", BtValueType.Bool, required: false, defaultValue: false),
+                    new BtParamDef("stopInRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("restartRootInRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("giveUpDistance", BtValueType.Float, required: false, defaultValue: -1f),
+                    new BtParamDef("giveUpDistanceKey", BtValueType.String, required: false, defaultValue: "ChaseGiveUpRange"),
+                },
+                [BtTypeIds.Action.MoveToSkillRange] = new List<BtParamDef>
+                {
+                    new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
+                    new BtParamDef("extraMargin", BtValueType.Float, required: false, defaultValue: 0f),
+                    new BtParamDef("stopInRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("restartRootInRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("giveUpDistance", BtValueType.Float, required: false, defaultValue: -1f),
+                    new BtParamDef("giveUpDistanceKey", BtValueType.String, required: false, defaultValue: "ChaseGiveUpRange"),
+                },
                 ["Action.UseSkill"] = new List<BtParamDef>
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
                     new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
                     // EnumString: Running / Success
                     new BtParamDef("busyReturn", BtValueType.EnumString, required: false, defaultValue: "Running"),
+                    new BtParamDef("validateCastRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("castRangeMargin", BtValueType.Float, required: false, defaultValue: 0f),
                 },
                 ["Action.UseSkillAndWait"] = new List<BtParamDef>
                 {
                     new BtParamDef("skillUid", BtValueType.Int, required: true, defaultValue: 0),
                     new BtParamDef("requireTarget", BtValueType.Bool, required: false, defaultValue: true),
                     new BtParamDef("restartRoot", BtValueType.Bool, required: false, defaultValue: false),
+                    new BtParamDef("validateCastRange", BtValueType.Bool, required: false, defaultValue: true),
+                    new BtParamDef("castRangeMargin", BtValueType.Float, required: false, defaultValue: 0f),
+                },
+                [BtTypeIds.Action.BeginEvade] = new List<BtParamDef>
+                {
+                    new BtParamDef("trigger", BtValueType.EnumString, required: false, defaultValue: "Manual"),
                 },
                 ["Action.RequestRestartRoot"] = new List<BtParamDef>
                 {
