@@ -34,14 +34,14 @@ namespace GGemCo2DAiBtEditor
             {
                 name = "DesiredMeleeRange",
                 type = BtValueType.Float,
-                description = "근접 공격 거리(참조용). InAttackRange는 ControllerMonster의 공격 캡슐을 사용한다.",
+                description = "근접 공격 거리(레거시 참조용). InAttackRange는 monster_combat_profile의 BasicAttackRangeX/Y를 사용한다.",
                 defaultFloat = 1.8f
             });
             asset.blackboardSchema.keys.Add(new BlackboardKeyDef
             {
                 name = "ChaseGiveUpRange",
                 type = BtValueType.Float,
-                description = "추적 포기 거리",
+                description = "monster_combat_profile에 ChaseRange가 없을 때 사용하는 레거시 추적 포기 거리",
                 defaultFloat = 12f
             });
             asset.blackboardSchema.keys.Add(new BlackboardKeyDef
@@ -143,9 +143,8 @@ namespace GGemCo2DAiBtEditor
             if (faceIndex >= 0)
                 asset.nodes[faceIndex].children.Add(aWait);
 
-            // EngageCombat Sequence: HasAggro + TargetWithinDistance + (AttackOrChase Selector)
+            // EngageCombat Sequence: HasAggro + (AttackOrChase Selector)
             string cHasAggro2 = NewId();
-            string cWithin = NewId();
             string sAttackOrChase = NewId();
 
             asset.nodes.Add(new BtNodeRecord
@@ -154,7 +153,7 @@ namespace GGemCo2DAiBtEditor
                 kind = BtNodeKind.Composite,
                 typeId = BtTypeIds.Composite.Sequence,
                 title = "EngageCombat",
-                children = { cHasAggro2, cWithin, sAttackOrChase },
+                children = { cHasAggro2, sAttackOrChase },
                 graphPosition = new Vector2(350, 240)
             });
 
@@ -166,16 +165,6 @@ namespace GGemCo2DAiBtEditor
                 title = "HasAggroTarget",
                 graphPosition = new Vector2(650, 220)
             });
-            asset.nodes.Add(new BtNodeRecord
-            {
-                id = cWithin,
-                kind = BtNodeKind.Condition,
-                typeId = BtTypeIds.Condition.TargetWithinDistance,
-                title = "TargetWithinDistance(12)",
-                parameters = { new BtParamValue { key = "max", valueType = BtValueType.Float, floatValue = 12f } },
-                graphPosition = new Vector2(650, 280)
-            });
-
             // AttackOrChase Selector
             string qAttack = NewId();
             string qChase = NewId();

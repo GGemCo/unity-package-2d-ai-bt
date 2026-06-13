@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -568,7 +568,7 @@ namespace GGemCo2DAiBt
         /// <returns>적용 성공 시 true를 반환합니다.</returns>
         /// <remarks>
         /// monster_phase를 사용하는 몬스터는 페이즈 전환 시점마다
-        /// 시작 HP를 현재 HP뿐 아니라 최대 HP(TotalHp)에도 반영해야
+        /// 시작 HP를 현재 HP뿐 아니라 최대 HP(MaxHp)에도 반영해야
         /// HUD/월드 HP 바의 분모가 현재 페이즈 기준으로 일치합니다.
         /// </remarks>
         private async Task<bool> ApplyPhaseTreeAndStartHpAsync(int phaseIndex)
@@ -592,9 +592,9 @@ namespace GGemCo2DAiBt
         /// </summary>
         /// <param name="phaseStartHp">페이즈 테이블 정책으로 계산된 시작 HP입니다.</param>
         /// <remarks>
-        /// TotalHp는 CharacterStat 재계산 결과이므로 BaseHp를 먼저 갱신한 뒤
-        /// RecalculateStats를 호출해 TotalHp를 갱신합니다.
-        /// 그 후 CurrentHp를 최종 TotalHp 범위로 보정하여 반영합니다.
+        /// MaxHp는 CharacterStat 재계산 결과이므로 BaseHp를 먼저 갱신한 뒤
+        /// RecalculateStats를 호출해 MaxHp를 갱신합니다.
+        /// 그 후 CurrentHp를 최종 MaxHp 범위로 보정하여 반영합니다.
         /// </remarks>
         private void ApplyPhaseHpSnapshot(long phaseStartHp)
         {

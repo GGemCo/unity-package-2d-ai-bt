@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using GGemCo2DCore;
@@ -1651,7 +1651,8 @@ namespace GGemCo2DAiBt
             /// <remarks>
             /// 우선순위:
             /// 1) 노드 파라미터 `giveUpDistance`
-            /// 2) 블랙보드 키(`giveUpDistanceKey`, 기본값: ChaseGiveUpRange)
+            /// 2) Core 몬스터 전투 범위 프로필의 ChaseRange
+            /// 3) 블랙보드 키(`giveUpDistanceKey`, 기본값: ChaseGiveUpRange)
             /// </remarks>
             private float ResolveMoveGiveUpDistance(BtNodeRecord node)
             {
@@ -1659,10 +1660,19 @@ namespace GGemCo2DAiBt
                 if (explicitDistance > 0f)
                     return explicitDistance;
 
+                if (Driver is IMonsterCombatRangeProvider rangeProvider)
+                {
+                    float profileDistance = rangeProvider.CombatRangeProfile.ChaseRange;
+                    if (profileDistance > 0f)
+                        return profileDistance;
+                }
+
                 string key = GetStringParam(node, "giveUpDistanceKey", fallback: "ChaseGiveUpRange");
                 if (!string.IsNullOrEmpty(key) && Blackboard != null && Blackboard.TryGetFloat(key, out float fromBlackboard))
                 {
-                    return Mathf.Max(0f, fromBlackboard);
+                    float blackboardDistance = Mathf.Max(0f, fromBlackboard);
+                    if (blackboardDistance > 0f)
+                        return blackboardDistance;
                 }
 
                 return -1f;
