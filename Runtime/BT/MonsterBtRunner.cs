@@ -904,6 +904,15 @@ namespace GGemCo2DAiBt
                 {
                     ok = ctx.HasAggroTarget();
                     AddMetric(node.id, executionKey, "HasAggroTarget", ok ? 1f : 0f);
+                    if (ctx.Driver is IMonsterThreatProvider threatProvider)
+                    {
+                        AddMetric(node.id, executionKey, "ThreatTargetCount", threatProvider.ThreatTargetCount);
+                        if (threatProvider.TryGetCurrentTargetThreat(out float currentThreat))
+                        {
+                            AddMetric(node.id, executionKey, "CurrentTargetThreat", currentThreat);
+                        }
+                    }
+
                     AddEvent(node.id, executionKey, BtDebugEventKind.Condition, "HasAggroTarget", ok ? BtStatus.Success : BtStatus.Failure, ok ? BtDebugReason.None : BtDebugReason.NoTarget, $"HasAggroTarget => {ok}");
                     break;
                 }
@@ -1517,9 +1526,18 @@ namespace GGemCo2DAiBt
                 DebugLog = debugLog;
             }
 
+            /// <summary>
+            /// Threat 목록을 정리한 뒤 현재 사용할 수 있는 전투 타겟이 존재하는지 확인합니다.
+            /// </summary>
+            /// <returns>유효한 현재 타겟이 있으면 <see langword="true"/>입니다.</returns>
             public bool HasAggroTarget()
             {
                 if (Driver.IsDead) return false;
+                if (Driver is IMonsterThreatProvider threatProvider)
+                {
+                    threatProvider.RefreshCombatTarget();
+                }
+
                 if (!Driver.IsAggro) return false;
                 return Driver.TryGetTarget(out _);
             }
