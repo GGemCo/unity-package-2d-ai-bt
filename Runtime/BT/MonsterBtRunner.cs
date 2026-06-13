@@ -16,7 +16,7 @@ namespace GGemCo2DAiBt
     /// - Core 패키지는 본 BT 패키지를 참조하지 않는다(의존성 단방향).
     /// </remarks>
     [DisallowMultipleComponent]
-    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle, IMonsterBrainRuntimeResettable, IGameInitializable, IGameActivatable, IGameDeinitializable
+    public sealed class MonsterBtRunner : MonoBehaviour, IMonsterBrainTickable, IMonsterPoolLifecycle, IMonsterBrainRuntimeResettable, IMonsterLeashLifecycle, IGameInitializable, IGameActivatable, IGameDeinitializable
     {
         private MonsterBehaviorTreeAsset _treeAsset;
 
@@ -369,6 +369,20 @@ namespace GGemCo2DAiBt
         public void OnPoolReturn(Monster owner)
         {
             ResetForPoolReturn();
+        }
+
+        /// <inheritdoc />
+        public void OnLeashEvadeStarted(Monster owner, MonsterLeashTrigger trigger)
+        {
+            // 진행 중이던 Running 노드와 스킬 결과 캐시가 귀환 후 이어지지 않도록 트리 런타임을 초기화합니다.
+            ResetRuntimeForCulling();
+        }
+
+        /// <inheritdoc />
+        public void OnLeashReturnCompleted(Monster owner)
+        {
+            // 홈 복귀 직후 다음 평가에서 루트부터 즉시 판단할 수 있도록 틱 대기 시간을 초기화합니다.
+            _nextTickTime = 0f;
         }
 
         private void OnValidate()
@@ -1633,8 +1647,16 @@ namespace GGemCo2DAiBt
                 if (giveUpDistance > 0f && distance > giveUpDistance)
                 {
                     Driver.RequestWait();
+                    bool startedLeashEvade =
+                        Driver is IMonsterCombatRangeProvider rangeProvider &&
+                        rangeProvider.IsTargetBeyondChaseRange() &&
+                        Driver is IMonsterLeashProvider leashProvider &&
+                        leashProvider.RequestBeginEvade(MonsterLeashTrigger.Manual);
+
                     failureReason = BtDebugReason.OutOfRange;
-                    detail = $"target too far. distance={distance:0.###}, giveUpDistance={giveUpDistance:0.###}";
+                    detail = startedLeashEvade
+                        ? $"target too far. leash evade started. distance={distance:0.###}, giveUpDistance={giveUpDistance:0.###}"
+                        : $"target too far. distance={distance:0.###}, giveUpDistance={giveUpDistance:0.###}";
                     return BtStatus.Failure;
                 }
 
@@ -1712,6 +1734,7 @@ namespace GGemCo2DAiBt
                     MonsterMoveRequestFailureReason.StatusAttack => BtDebugReason.MoveBlockedByStatus,
                     MonsterMoveRequestFailureReason.StatusDead => BtDebugReason.MoveBlockedByStatus,
                     MonsterMoveRequestFailureReason.SpeedNonPositive => BtDebugReason.MoveBlockedBySpeed,
+                    MonsterMoveRequestFailureReason.LeashReturning => BtDebugReason.MoveBlockedByStatus,
                     MonsterMoveRequestFailureReason.CharacterMissing => BtDebugReason.MoveRequestRejected,
                     MonsterMoveRequestFailureReason.Unknown => BtDebugReason.MoveRequestRejected,
                     _ => BtDebugReason.MoveRequestRejected,
