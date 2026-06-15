@@ -1658,7 +1658,7 @@ namespace GGemCo2DAiBt
                         return BtStatus.Running;
                     }
 
-                    if (feedback.ConsumeLastSkillResult(nodeState.RunningSkillUid, out var execResult))
+                    if (feedback.TryGetLastSkillResult(nodeState.RunningSkillUid, out var execResult))
                     {
                         bool success = execResult.State == MonsterSkillExecutionState.Succeeded;
                         int finishedSkillUid = nodeState.RunningSkillUid;
