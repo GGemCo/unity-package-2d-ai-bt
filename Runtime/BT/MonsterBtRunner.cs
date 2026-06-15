@@ -2155,6 +2155,15 @@ namespace GGemCo2DAiBt
                     return BtStatus.Failure;
                 }
 
+                if (ShouldHoldPreferredRangeMoveForAirborneTarget(node, target))
+                {
+                    Driver.RequestWait();
+                    nodeState.MoveInDesiredRangeLastTick = false;
+                    failureReason = BtDebugReason.MoveBlockedByStatus;
+                    detail = $"preferred range move held while target is airborne. target={target.name}";
+                    return BtStatus.Running;
+                }
+
                 if (!TryGetPreferredRangeRelation(
                         out PreferredRangeRelation relation,
                         out float horizontalDistance,
@@ -2253,6 +2262,57 @@ namespace GGemCo2DAiBt
                 }
 
                 return Driver.TryRequestMove(direction, out moveFailure);
+            }
+
+            /// <summary>
+            /// 공중 상태인 타겟에 대해 선호 거리 보정 이동을 보류해야 하는지 확인합니다.
+            /// 플레이어가 CC 등으로 떠 있는 동안에는 Y축 거리 변화로 TooFar/TooClose 판정이 흔들릴 수 있으므로,
+            /// 기존 몬스터 이동 정지 설정이 켜져 있으면 선호 거리 이동도 같은 정책을 따릅니다.
+            /// </summary>
+            /// <param name="node">현재 MoveToPreferredRange 노드 레코드입니다.</param>
+            /// <param name="target">현재 전투 타겟 Transform입니다.</param>
+            /// <returns>타겟이 공중 상태라 선호 거리 이동을 보류해야 하면 <see langword="true"/>를 반환합니다.</returns>
+            private bool ShouldHoldPreferredRangeMoveForAirborneTarget(BtNodeRecord node, Transform target)
+            {
+                if (!ShouldIgnoreAirborneTargetForPreferredRangeMove(node))
+                {
+                    return false;
+                }
+
+                CharacterBase targetCharacter = ResolveTargetCharacter(target);
+                return targetCharacter != null && !targetCharacter.IsCurrentlyGrounded();
+            }
+
+            /// <summary>
+            /// 선호 거리 이동에서 공중 타겟을 거리 보정 대상으로 제외할지 확인합니다.
+            /// 노드에 ignoreAirborneTarget 파라미터가 있으면 해당 값을 우선하고,
+            /// 없으면 Core 공통 설정인 ignoreAirborneTargetForMonsterMoveStop 값을 사용합니다.
+            /// </summary>
+            /// <param name="node">현재 MoveToPreferredRange 노드 레코드입니다.</param>
+            /// <returns>공중 타겟에 대한 선호 거리 이동 보류가 활성화되어 있으면 <see langword="true"/>를 반환합니다.</returns>
+            private bool ShouldIgnoreAirborneTargetForPreferredRangeMove(BtNodeRecord node)
+            {
+                GGemCoSettings settings = AddressableLoaderSettings.Instance != null
+                    ? AddressableLoaderSettings.Instance.settings
+                    : null;
+                bool fallback = settings != null && settings.ignoreAirborneTargetForMonsterMoveStop;
+                return GetBoolParam(node, "ignoreAirborneTarget", fallback);
+            }
+
+            /// <summary>
+            /// 타겟 Transform 또는 부모 계층에서 실제 캐릭터 컴포넌트를 찾습니다.
+            /// </summary>
+            /// <param name="target">캐릭터를 찾을 기준 Transform입니다.</param>
+            /// <returns>캐릭터 컴포넌트를 찾으면 해당 인스턴스, 찾지 못하면 <see langword="null"/>입니다.</returns>
+            private static CharacterBase ResolveTargetCharacter(Transform target)
+            {
+                if (target == null)
+                {
+                    return null;
+                }
+
+                return target.GetComponent<CharacterBase>() ??
+                       target.GetComponentInParent<CharacterBase>();
             }
 
             /// <summary>
