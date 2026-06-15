@@ -2221,7 +2221,7 @@ namespace GGemCo2DAiBt
                     ? Owner.transform.position - target.position
                     : target.position - Owner.transform.position;
                 Vector2 direction = ResolveNonZeroDirection(raw, relation == PreferredRangeRelation.TooClose);
-                if (Driver.TryRequestMove(direction, out MonsterMoveRequestFailureReason moveFailure))
+                if (TryRequestPreferredRangeMove(direction, out MonsterMoveRequestFailureReason moveFailure))
                 {
                     detail = $"status=Running, relation={relation}, horizontal={horizontalDistance:0.###}, vertical={verticalDistance:0.###}, dir=({direction.x:0.###},{direction.y:0.###}), target={target.name}";
                     return BtStatus.Running;
@@ -2231,6 +2231,28 @@ namespace GGemCo2DAiBt
                 failureReason = ConvertMoveFailureToDebugReason(moveFailure);
                 detail = $"preferred range move rejected. relation={relation}, reason={moveFailure}, dir=({direction.x:0.###},{direction.y:0.###}), target={target.name}";
                 return BtStatus.Failure;
+            }
+
+            /// <summary>
+            /// 선호 거리 이동 전용 정지 정책을 지원하는 드라이버가 있으면 해당 경로로 이동을 요청합니다.
+            /// </summary>
+            /// <param name="direction">월드 기준 이동 방향 벡터입니다.</param>
+            /// <param name="moveFailure">이동 요청이 거부된 원인입니다.</param>
+            /// <returns>이동 요청이 수락되면 <see langword="true"/>입니다.</returns>
+            /// <remarks>
+            /// 커스텀 Driver가 아직 선호 거리 이동 확장을 구현하지 않은 경우에는 기존 이동 요청으로 대체해
+            /// 이전 BT 에셋과 런타임 구현체의 호환성을 유지합니다.
+            /// </remarks>
+            private bool TryRequestPreferredRangeMove(
+                Vector2 direction,
+                out MonsterMoveRequestFailureReason moveFailure)
+            {
+                if (Driver is IMonsterPreferredRangeMoveDriver preferredRangeDriver)
+                {
+                    return preferredRangeDriver.TryRequestPreferredRangeMove(direction, out moveFailure);
+                }
+
+                return Driver.TryRequestMove(direction, out moveFailure);
             }
 
             /// <summary>
