@@ -963,6 +963,32 @@ namespace GGemCo2DAiBt
                     break;
                 }
 
+                case BtTypeIds.Condition.IsTargetGrounded:
+                {
+                    bool hasTargetCharacter = ctx.TryGetTargetCharacter(out CharacterBase targetCharacter);
+
+                    // 스킬과 CrowdControl에서 사용하는 Core 공통 지면 판정과 동일한 기준으로 타겟 상태를 평가합니다.
+                    ok = hasTargetCharacter && targetCharacter.IsCurrentlyGrounded();
+
+                    AddMetric(node.id, executionKey, "HasTargetCharacter", hasTargetCharacter ? 1f : 0f);
+                    AddMetric(node.id, executionKey, "IsTargetGrounded", ok ? 1f : 0f);
+                    AddEvent(
+                        node.id,
+                        executionKey,
+                        BtDebugEventKind.Condition,
+                        "IsTargetGrounded",
+                        ok ? BtStatus.Success : BtStatus.Failure,
+                        ok
+                            ? BtDebugReason.None
+                            : hasTargetCharacter
+                                ? BtDebugReason.TargetNotGrounded
+                                : BtDebugReason.NoTarget,
+                        hasTargetCharacter
+                            ? $"target={targetCharacter.name}, grounded={ok}"
+                            : "target character missing");
+                    break;
+                }
+
                 case BtTypeIds.Condition.IsTargetInPreferredRange:
                 case BtTypeIds.Condition.IsTargetTooClose:
                 case BtTypeIds.Condition.IsTargetTooFar:
@@ -1869,6 +1895,23 @@ namespace GGemCo2DAiBt
             public bool HasCombatTarget()
             {
                 return TrySelectCombatTarget(out _, out _);
+            }
+
+            /// <summary>
+            /// 현재 전투 타겟에서 Core 캐릭터 컴포넌트를 조회합니다.
+            /// </summary>
+            /// <param name="targetCharacter">조회된 현재 전투 타겟 캐릭터입니다.</param>
+            /// <returns>유효한 타겟 캐릭터를 찾았으면 <see langword="true"/>입니다.</returns>
+            public bool TryGetTargetCharacter(out CharacterBase targetCharacter)
+            {
+                targetCharacter = null;
+                if (!Driver.TryGetTarget(out Transform target) || target == null)
+                {
+                    return false;
+                }
+
+                targetCharacter = ResolveTargetCharacter(target);
+                return targetCharacter != null;
             }
 
             /// <summary>

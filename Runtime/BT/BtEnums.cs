@@ -101,6 +101,10 @@ namespace GGemCo2DAiBt
 
             /// <summary>현재 유효한 공격 슬롯 예약을 보유하는지 확인합니다.</summary>
             public const string HasAttackSlotReservation = "Condition.HasAttackSlotReservation";
+
+            /// <summary>현재 전투 타겟이 지면에 접지된 상태인지 확인합니다.</summary>
+            public const string IsTargetGrounded = "Condition.IsTargetGrounded";
+
             public const string HpPercentBelow = "Condition.HpPercentBelow";
             public const string TargetWithinDistance = "Condition.TargetWithinDistance";
             public const string CanUseSkill = "Condition.CanUseSkill";

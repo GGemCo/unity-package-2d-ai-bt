@@ -108,6 +108,8 @@ namespace GGemCo2DAiBt
         AttackSlotUnavailable,
         /// <summary>공격 슬롯 예약에 성공함.</summary>
         AttackSlotReserved,
+        /// <summary>현재 전투 타겟이 지면에 접지되어 있지 않음.</summary>
+        TargetNotGrounded,
     }
 
     /// <summary>

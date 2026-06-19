@@ -65,6 +65,7 @@ namespace GGemCo2DAiBtEditor
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsReturningHome, DisplayName = "Is Returning Home" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.CanReserveAttackSlot, DisplayName = "Can Reserve Attack Slot" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.HasAttackSlotReservation, DisplayName = "Has Attack Slot Reservation" },
+            new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = BtTypeIds.Condition.IsTargetGrounded, DisplayName = "Target Is Grounded" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.HpPercentBelow", DisplayName = "Hp Percent Below" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.TargetWithinDistance", DisplayName = "Target Within Distance" },
             new BtNodeTypeDef{ Kind = BtNodeKind.Condition, TypeId = "Condition.CanUseSkill", DisplayName = "Can Use Skill" },
