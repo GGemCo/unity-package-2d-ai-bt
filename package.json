@@ -1,9 +1,14 @@
 {
   "name": "com.ggemco.2d.ai.bt",
-  "displayName": "GGemCo 2D AI - Behavior Tree",
   "version": "0.0.1",
-  "unity": "2022.3",
+  "displayName": "GGemCo 2D AI - Behavior Tree",
   "description": "몬스터 전투 AI를 위한 데이터 기반 Behavior Tree 시스템을 제공하는 패키지입니다.\n그래프 기반 BT 편집 툴, 런타임 실행기, 블랙보드 상태 관리, 노드 검증 및 디버그 기능을 포함합니다.\nCore 패키지와 Skill 패키지를 기반으로 동작하며 몬스터의 행동 결정과 스킬 사용 로직을 Behavior Tree로 구성할 수 있습니다.",
+  "unity": "2022.3",
+  "author": {
+    "name": "GGemCo",
+    "url": "https://github.com/GGemCo/unity-package-2d-ai-bt.git",
+    "email": "ggemco.master@gmail.com"
+  },
   "dependencies": {
   },
   "samples": [
