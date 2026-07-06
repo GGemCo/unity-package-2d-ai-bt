@@ -8,10 +8,16 @@ namespace GGemCo2DAiBtEditor
     /// </summary>
     public static class ConfigEditorAiBt
     {
+        /// <summary>
+        /// AI BT 패키지 Unity 메뉴 항목의 정렬 순서(order) 값을 정의합니다.
+        /// </summary>
+        /// <remarks>
+        /// 공통 메뉴 우선순위 기준값에 AI BT 내부 로컬 순서를 더해 메뉴 배치 순서를 결정합니다.
+        /// </remarks>
         public enum ToolOrdering
         {
             /// <summary>기본 셋팅 메뉴 섹션의 시작 위치입니다.</summary>
-            DefaultSetting = 1,
+            DefaultSetting = GGemCoToolMenuPriority.AiBtSettings + 1,
 
             /// <summary>Addressables 셋팅 메뉴 섹션의 시작 위치입니다.</summary>
             SettingAddressable,
@@ -26,18 +32,18 @@ namespace GGemCo2DAiBtEditor
             SettingSceneGame,
 
             /// <summary>개발 도구 메뉴 섹션의 시작 위치입니다.</summary>
-            Development = 100,
+            Development = GGemCoToolMenuPriority.AiBtDevelopment,
             CreateBt,
 
             /// <summary>테스트 도구 메뉴 섹션의 시작 위치입니다.</summary>
-            Test = 200,
+            Test = GGemCoToolMenuPriority.AiBtTest,
             SettingTestSkill,
 
             /// <summary>셔플(Shuffle) 미리보기 메뉴의 위치입니다.</summary>
             PreviewShuffle,
 
             /// <summary>기타 도구 메뉴 섹션의 시작 위치입니다.</summary>
-            Etc = 900,
+            Etc = GGemCoToolMenuPriority.AiBtEtc,
         }
 
        private const string NameToolGGemCoAiBt = GGemCoToolMenu.AiBt;
@@ -93,9 +99,6 @@ namespace GGemCo2DAiBtEditor
         /// <summary>
         /// 테스트툴 메뉴의 경로 접두사입니다.
         /// </summary>
-        /// <remarks>
-        /// NOTE: 현재 문자열이 "테스트툴"로 되어 있는데, 의도한 표기가 "테스트툴"이라면 수정이 필요합니다.
-        /// </remarks>
         private const string NameToolTest = NameToolGGemCoAiBt + GGemCoToolMenu.Test;
 
         // etc
