@@ -1,4 +1,4 @@
-﻿using GGemCo2DCore;
+using GGemCo2DCore;
 using GGemCo2DCoreEditor;
 using UnityEditor;
 using UnityEngine;
@@ -67,7 +67,7 @@ namespace GGemCo2DAiBtEditor
             {
                 HelperLog.Error(
                     $"[{nameof(SceneEditorLoadingAiBt)}] {sceneName} 이 없습니다.\n" +
-                    "GGemCoTool > 설정하기 > 로딩 씬 셋팅하기에서 필수 항목 셋팅하기를 실행해주세요.",
+                    "GGemCoTool > AI BT > 설정하기 > 로딩 씬 셋팅하기에서 필수 항목 셋팅하기를 실행해주세요.",
                     ctx);
                 return;
             }
