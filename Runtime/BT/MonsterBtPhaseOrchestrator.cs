@@ -23,6 +23,9 @@ namespace GGemCo2DAiBt
         private long _cachedBaseHp;
         private object _brainLockToken;
         private object _controlLockToken;
+        private MonsterPhaseTransitionContext _activePhaseTransitionContext;
+        private bool _hasActivePhaseTransitionContext;
+        private bool _isPhaseTransitionCancellationRequested;
 
         /// <summary>
         /// 페이즈 전환이 시작되어 몬스터 제어가 잠기기 직전에 발생합니다.
@@ -43,6 +46,15 @@ namespace GGemCo2DAiBt
         /// 페이즈 전환 잠금이 해제되고 전환 상태가 종료된 직후 발생합니다.
         /// </summary>
         public event Action<MonsterPhaseTransitionContext> PhaseTransitionCompleted;
+
+        /// <summary>
+        /// 페이즈 전환이 성공, 실패 또는 취소 상태로 완전히 종료된 직후 발생합니다.
+        /// </summary>
+        /// <remarks>
+        /// 성공한 전환에서는 기존 <see cref="PhaseTransitionCompleted"/> 이벤트를 먼저 발행한 뒤 호출합니다.
+        /// 오브젝트 비활성화나 풀 반환으로 전환 코루틴이 중단된 경우에도 취소 결과를 발행합니다.
+        /// </remarks>
+        public event Action<MonsterPhaseTransitionResult> PhaseTransitionFinished;
 
         /// <summary>
         /// 현재 적용된 페이즈 번호입니다. 초기화 전에는 0입니다.
@@ -189,9 +201,7 @@ namespace GGemCo2DAiBt
 
         private void OnDisable()
         {
-            StopAllCoroutines();
-            ReleaseTransitionLocks();
-            _isTransitionRunning = false;
+            CancelRunningTransitions();
         }
 
         /// <summary>
@@ -307,12 +317,15 @@ namespace GGemCo2DAiBt
                 transitionCutsceneUid,
                 holdHp);
 
-            PhaseTransitionStarted?.Invoke(context);
-            AcquireTransitionLocks();
-
             bool applied = false;
+            bool completed = false;
+            _activePhaseTransitionContext = context;
+            _hasActivePhaseTransitionContext = true;
             try
             {
+                PhaseTransitionStarted?.Invoke(context);
+                AcquireTransitionLocks();
+
                 // 전환 트리거 프레임에서 HP를 유지값으로 즉시 고정합니다.
                 if (_owner != null && _owner.CurrentHp.Value < holdHp)
                 {
@@ -345,15 +358,31 @@ namespace GGemCo2DAiBt
                 _currentPhaseListIndex = nextPhaseIndex;
                 PhaseApplied?.Invoke(context);
                 yield return CoPlayPhaseStartCutsceneIfNeeded(_currentPhaseListIndex);
+                completed = true;
             }
             finally
             {
                 ReleaseTransitionLocks();
                 _isTransitionRunning = false;
 
-                if (applied)
+                bool wasCancelled = _isPhaseTransitionCancellationRequested;
+                MonsterPhaseTransitionFinishStatus finishStatus = wasCancelled
+                    ? MonsterPhaseTransitionFinishStatus.Cancelled
+                    : completed
+                        ? MonsterPhaseTransitionFinishStatus.Succeeded
+                        : MonsterPhaseTransitionFinishStatus.Failed;
+
+                try
                 {
-                    PhaseTransitionCompleted?.Invoke(context);
+                    if (completed && !wasCancelled)
+                    {
+                        PhaseTransitionCompleted?.Invoke(context);
+                    }
+                }
+                finally
+                {
+                    // 기존 성공 이벤트의 구독자가 예외를 발생시키더라도 범용 종료 이벤트는 반드시 발행합니다.
+                    FinishActivePhaseTransition(context, finishStatus);
                 }
             }
         }
@@ -660,15 +689,57 @@ namespace GGemCo2DAiBt
         }
 
         /// <summary>
+        /// 현재 활성 페이즈 전환을 지정한 상태로 종료하고 범용 종료 이벤트를 한 번만 발행합니다.
+        /// </summary>
+        /// <param name="context">종료할 페이즈 전환 컨텍스트입니다.</param>
+        /// <param name="status">페이즈 전환의 최종 종료 상태입니다.</param>
+        private void FinishActivePhaseTransition(
+            MonsterPhaseTransitionContext context,
+            MonsterPhaseTransitionFinishStatus status)
+        {
+            if (!_hasActivePhaseTransitionContext)
+                return;
+
+            // 중단 처리와 코루틴 finally가 같은 프레임에 실행되어도 종료 이벤트가 중복되지 않도록
+            // 활성 상태를 먼저 해제한 뒤 외부 구독자에게 결과를 전달합니다.
+            _hasActivePhaseTransitionContext = false;
+            _activePhaseTransitionContext = default;
+            PhaseTransitionFinished?.Invoke(
+                new MonsterPhaseTransitionResult(context, status));
+        }
+
+        /// <summary>
+        /// 실행 중인 페이즈 관련 코루틴과 잠금을 정리하고 활성 전환을 취소 상태로 종료합니다.
+        /// </summary>
+        private void CancelRunningTransitions()
+        {
+            _isPhaseTransitionCancellationRequested = true;
+            try
+            {
+                StopAllCoroutines();
+                ReleaseTransitionLocks();
+                _isTransitionRunning = false;
+
+                if (_hasActivePhaseTransitionContext)
+                {
+                    FinishActivePhaseTransition(
+                        _activePhaseTransitionContext,
+                        MonsterPhaseTransitionFinishStatus.Cancelled);
+                }
+            }
+            finally
+            {
+                _isPhaseTransitionCancellationRequested = false;
+            }
+        }
+
+        /// <summary>
         /// 페이즈 런타임 상태를 초기화합니다.
         /// </summary>
         /// <param name="clearConfiguration">true면 주입된 페이즈/참조까지 초기화합니다.</param>
         private void ResetPhaseRuntimeState(bool clearConfiguration)
         {
-            StopAllCoroutines();
-            ReleaseTransitionLocks();
-
-            _isTransitionRunning = false;
+            CancelRunningTransitions();
 
             if (!clearConfiguration)
                 return;
